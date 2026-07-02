@@ -8,8 +8,16 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
+    /// AppKit-managed Settings window (owned here, not by `AppState`, so its
+    /// SwiftUI content — which retains `AppState` — does not form a retain cycle).
+    private lazy var settingsWindowController = SettingsWindowController(appState: appState)
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         appState.start()
+        // Route the menu's "Settings…" item to the same AppKit-managed window
+        // that the reopen handler uses (SwiftUI's `Settings` scene can't be opened
+        // from `applicationShouldHandleReopen` in an accessory app).
+        appState.settingsPresenter = { [weak self] in self?.settingsWindowController.show() }
 
         #if DEBUG
         // On-screen verification hook: render the settings UI in a real window at
@@ -22,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             NSApp.setActivationPolicy(.regular)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.showSettingsForScreenshot()
+                self.settingsWindowController.show()
             }
         }
         #endif
@@ -58,32 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         walk(mainMenu)
     }
 
-    #if DEBUG
-    private var screenshotWindow: NSWindow?
-
-    private func showSettingsForScreenshot() {
-        let root = SettingsRootView().localized(with: appState)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: DS.Window.settingsWidth, height: DS.Window.settingsHeight),
-            styleMask: [.titled, .closable],
-            backing: .buffered, defer: false
-        )
-        window.title = "CloseUp"
-        window.contentView = NSHostingView(rootView: root)
-        window.center()
-        window.isReleasedWhenClosed = false
-        screenshotWindow = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-    }
-    #endif
-
-    /// Re-opening the app (Finder/Spotlight launch of the already-running
-    /// instance) un-hides the menu-bar icon. It is the only route to Settings/Quit,
-    /// so a hidden-icon user needs this recovery: reset the hide flag instead of
-    /// opening a window.
+    /// Re-opening the app (Finder/Spotlight/`open` launch of the already-running
+    /// instance) opens Settings, matching the convention that reopening a
+    /// menu-bar app surfaces its main window. This is the recovery route for a
+    /// user who hid the menu-bar icon: it must NOT reset the hide flag (the user
+    /// asked to keep the icon hidden), and Settings is where they can un-hide it
+    /// or reach Quit. `SettingsWindowController` raises the window above other
+    /// apps since an accessory (`LSUIElement`) app is not auto-activated.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if appState.hideMenuBarIcon { appState.hideMenuBarIcon = false }
+        settingsWindowController.show()
         return true
     }
 

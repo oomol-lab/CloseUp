@@ -139,6 +139,22 @@ final class AppState {
         shortcuts.isAtDefault(shortcut)
     }
 
+    // MARK: - Settings window
+
+    /// Presents the Settings window. Wired by `AppDelegate` at launch because the
+    /// window is AppKit-managed (`SettingsWindowController`): SwiftUI's `Settings`
+    /// scene cannot be opened from the reopen handler in an accessory
+    /// (`LSUIElement`) app. Held as a closure so `AppState` never retains the
+    /// window (whose SwiftUI content already retains `AppState`). Both the menu's
+    /// "Settings…" item and reopening the app route through `openSettings()`.
+    @ObservationIgnored
+    var settingsPresenter: (() -> Void)?
+
+    /// Show the Settings window (creating it on first use) and bring it forward.
+    func openSettings() {
+        settingsPresenter?()
+    }
+
     // MARK: - Init
 
     init() {

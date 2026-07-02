@@ -30,10 +30,10 @@ struct CloseUpApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Settings {
-            SettingsRootView()
-                .localized(with: appState)
-        }
+        // No SwiftUI `Settings` scene: its `showSettingsWindow:` responder does
+        // not open the window from the reopen handler in an accessory app (see
+        // `SettingsWindowController`), so Settings is presented from a
+        // self-managed `NSWindow` reached via `appState.openSettings()`.
     }
 }
 
