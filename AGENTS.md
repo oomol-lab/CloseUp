@@ -450,8 +450,30 @@ conventional behaviour; each is intentional and load-bearing.
   (a status badge + the "Open Accessibility Settings…" button; launch-at-login and
   hide-menu-bar-icon toggles, SMAppService for login). Keep the menu bar minimal —
   Enable / Check for Updates / Settings / Quit — and do not add first-run alerts or
-  onboarding/warning items. The status item, once hidden, is restored by re-opening
-  the app (`applicationShouldHandleReopen`).
+  onboarding/warning items.
+- **Re-opening the app OPENS SETTINGS — it must NEVER reset the hide-icon flag.**
+  When the menu-bar icon is hidden, the status item is the only route to
+  Settings/Quit, so a user who re-invokes the app (Finder/Spotlight/`open` of the
+  already-running instance → `applicationShouldHandleReopen`) needs recovery. The
+  fix is to OPEN SETTINGS (the conventional "reopening a menu-bar app surfaces its
+  window"), **not** to flip `hideMenuBarIcon` back to `false` — silently un-hiding
+  the icon is the documented anti-behavior the user reported. Settings is where they
+  re-show the icon or Quit; the hide preference is respected.
+- **Settings is a self-managed `NSWindow` (`SettingsWindowController`), NOT SwiftUI's
+  `Settings` scene.** Verified on macOS 26: `NSApp.sendAction(Selector("showSettingsWindow:"),
+  to: nil, from: nil)` reports handled (returns `true`) yet NO window ever materializes
+  when invoked from `applicationShouldHandleReopen` in an accessory (`LSUIElement`) app
+  — even after `setActivationPolicy(.regular)`. So there is no `Settings {}` scene;
+  both the menu's "Settings…" item and the reopen handler route through
+  `appState.openSettings()` → `SettingsWindowController.show()`, which reuses one
+  window. Two load-bearing details: (1) the window hosts a WRAPPER view
+  (`SettingsWindowRoot`) whose `body` applies `.localized(with:)` so the locale reads
+  live inside a re-evaluated body — `NSHostingView` then switches language live; a
+  fixed root view passed to `NSHostingView.init` freezes the locale captured at
+  creation. (2) an accessory app is not auto-activated, so `orderFrontRegardless()`
+  (not `NSApp.activate()`, which is cooperative and can be denied) is what reliably
+  raises the window above the frontmost app. `windowWillClose` stops the AX poll
+  (mirrors `SettingsRootView.onDisappear`, which is unreliable for a reused window).
 
 ## Internationalization (in-app override, 9 languages)
 

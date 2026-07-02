@@ -25,4 +25,7 @@ public enum Log {
 
     /// Event-tap create/teardown and the system-disable re-enable path.
     public static let eventTap = Logger(subsystem: subsystem, category: "eventtap")
+
+    /// App-shell lifecycle: reopen handling, Settings-window presentation.
+    public static let app = Logger(subsystem: subsystem, category: "app")
 }
