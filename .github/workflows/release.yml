@@ -1,0 +1,73 @@
+name: Release
+
+# Manually dispatched stable release. The version is either given explicitly
+# or auto-bumped from the latest stable tag (patch by default); the workflow
+# builds first and creates the git tag at publish time — you never push tags
+# by hand. A version with a pre-release suffix (1.2.3-rc.1) is honored as a
+# manual beta escape hatch: it ships to the beta channel and the GitHub
+# Release is marked pre-release (never "Latest"). The normal beta path is the
+# nightly build (see nightly.yml).
+#
+# Builds signed + notarized + stapled apps (one per architecture), publishes a
+# GitHub Release with each arch's zip (for Sparkle) and a drag-to-install dmg,
+# and appends the EdDSA-signed entry to each arch's appcast on the gh-pages
+# branch. The build itself lives in the reusable build-publish.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Explicit version (e.g. 1.2.3). Empty = auto-bump from the latest stable tag."
+        required: false
+        type: string
+      bump:
+        description: "Segment to bump when version is empty."
+        required: false
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+# Serialize against nightly.yml (same group): both publish a tag, a GitHub
+# Release, and the per-arch appcasts on gh-pages. cancel-in-progress: false queues
+# a newly triggered run instead of cancelling the in-flight one; queue: max then
+# keeps EVERY waiting run in line (FIFO, up to 100) — without it GitHub retains
+# only the most-recent pending run and silently cancels any earlier one, so a
+# release could be dropped when the nightly cron fires while another publish is
+# still running.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      channel: ${{ steps.v.outputs.channel }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - id: v
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          VERSION_BUMP: ${{ inputs.bump }}
+        run: bash scripts/ci/compute_version.sh release
+
+  publish:
+    name: Publish ${{ needs.version.outputs.tag }}
+    needs: version
+    uses: ./.github/workflows/build-publish.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      tag: ${{ needs.version.outputs.tag }}
+      channel: ${{ needs.version.outputs.channel }}
+      prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+    secrets: inherit

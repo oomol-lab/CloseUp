@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Decide whether the expensive build job should run. A push to main that is the
+  # result of merging a PR was already tested on that PR, so skip it; a commit
+  # pushed directly to main has no associated PR and must be tested.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether to run
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prs=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq 'length')
+          if [ "$prs" -gt 0 ]; then
+            echo "Commit ${{ github.sha }} came from a PR — already tested there, skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Direct push to main — running CI."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-test:
+    name: Build & Test
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: blacksmith-6vcpu-macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.app
+          fi
+          xcodebuild -version
+
+      - name: Install tools
+        # xcbeautify ships with the macOS runner image; only xcodegen is missing.
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build & Test (host arch)
+        run: |
+          set -o pipefail
+          xcodebuild -scheme CloseUp -configuration Debug \
+            -derivedDataPath build/DerivedData \
+            -destination 'platform=macOS' \
+            -resultBundlePath build/TestResults.xcresult \
+            test | xcbeautify
+
+      - name: Universal build check (arm64 + x86_64)
+        # CloseUp ships one universal app; make sure a PR can't land code that
+        # only compiles for the host arch. Build-only — tests already ran above
+        # and Rosetta isn't guaranteed on the runner.
+        run: |
+          set -o pipefail
+          xcodebuild -scheme CloseUp -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: build/TestResults.xcresult
+          if-no-files-found: ignore

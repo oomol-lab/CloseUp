@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>PWJ9VF7HHT</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<!-- Hardened Runtime is enabled via build settings; Sparkle.framework is
+	     signed during the build (no --deep). Notarization runs separately. -->
+</dict>
+</plist>

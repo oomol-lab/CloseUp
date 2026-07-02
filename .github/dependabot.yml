@@ -1,0 +1,33 @@
+# Dependabot keeps the GitHub Actions used by ci / nightly / release /
+# build-publish current — they drift several majors behind otherwise. Commit
+# prefixes and the `(deps)` scope follow the repo's Conventional Commits
+# convention so the squash titles read like every other PR (`ci(deps): ...`).
+#
+# Swift Package Manager deps (Sparkle, KeyboardShortcuts, PermissionFlow) are
+# intentionally NOT tracked here: their floors live in project.yml and the
+# generated CloseUp.xcodeproj's Package.resolved is gitignored, so there is
+# nothing for a Swift updater to scan — bump them by editing project.yml.
+#
+# cooldown: let a freshly released version soak for N days before its PR is
+# opened — supply-chain safety, so a malicious or broken release has time to
+# be caught/yanked first. It delays *version* updates only; security (CVE)
+# updates still open immediately, so we don't trade away urgent patches.
+version: 2
+updates:
+  # `directory: "/"` scans .github/workflows/; local reusable-workflow
+  # `uses: ./...` references are ignored automatically.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    # github-actions supports only the flat default-days (no per-semver-tier
+    # cooldown), so every actions bump waits 3 days.
+    cooldown:
+      default-days: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

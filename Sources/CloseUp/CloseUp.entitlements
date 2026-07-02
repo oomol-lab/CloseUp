@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Non-sandboxed Developer ID app. The Accessibility APIs CloseUp relies on
+	     to enumerate Mission Control's window thumbnails and to close/quit those
+	     windows are incompatible with the App Sandbox, so
+	     com.apple.security.app-sandbox is intentionally absent. Hardened Runtime
+	     is enabled via build settings; no exceptions needed yet. -->
+</dict>
+</plist>

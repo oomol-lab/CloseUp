@@ -1,0 +1,27 @@
+# Generated Xcode project (regenerated from project.yml by `make gen`).
+CloseUp.xcodeproj/
+
+# Build artifacts.
+build/
+.build/
+DerivedData/
+
+# macOS noise.
+.DS_Store
+
+# Swift Package Manager.
+.swiftpm/
+Package.resolved
+
+# User-specific Xcode state (in case the project is opened in the IDE).
+*.xcuserstate
+xcuserdata/
+
+# Update lab / local signing scratch.
+*.tmp
+
+# Coverage artifacts.
+*.profraw
+
+# Claude Code: local agent state (memory, worktrees, caches, transcripts) — never committed.
+.claude/

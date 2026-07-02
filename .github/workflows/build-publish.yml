@@ -1,0 +1,335 @@
+name: Build & Publish
+
+# Reusable build+publish pipeline shared by release.yml (stable) and
+# nightly.yml (beta). Builds, signs, notarizes & staples one app PER
+# ARCHITECTURE (arm64 + x86_64) — never a universal binary (download size) —
+# publishes a GitHub Release with each arch's zip (for Sparkle) and a
+# drag-to-install dmg, and appends the EdDSA-signed entry to that arch's
+# appcast on the gh-pages branch. Callers compute the version
+# (scripts/ci/compute_version.sh) and pass it in.
+#
+# Each architecture is its own product line with its own symmetric Sparkle feed:
+#   appcast-arm64.xml   — arm64
+#   appcast-x86_64.xml  — x86_64
+# each pinned at compile time in UpdaterDelegate.feedURLString(for:) via #if
+# arch. Cross-arch updates are unsupported by design: a binary can only ever see
+# its own architecture's feed. There is NO compatibility with the universal
+# 0.1.0 — its baked appcast.xml is left orphaned on purpose. Beta builds share
+# the same feed files; generate_appcast tags beta items with the beta channel so
+# stable users never see them.
+#
+# One-time setup (secrets, EdDSA key, Pages enablement, first-release ordering)
+# is documented in docs/RUNBOOK.md.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Display version (CFBundleShortVersionString), e.g. 1.2.3 or 1.2.3-beta.4
+        required: true
+        type: string
+      tag:
+        description: Git tag to create on the built commit, e.g. v1.2.3
+        required: true
+        type: string
+      channel:
+        description: Sparkle channel (stable | beta)
+        required: true
+        type: string
+      prerelease:
+        description: Mark the GitHub Release as a pre-release (pre-releases are never "Latest")
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build & publish
+    runs-on: blacksmith-6vcpu-macos-latest
+    env:
+      SCHEME: CloseUp
+      APP_NAME: CloseUp
+      TEAM_ID: PWJ9VF7HHT
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.app
+          fi
+          xcodebuild -version
+
+      - name: Install tools
+        run: brew install xcodegen
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: bash scripts/ci/import_cert.sh
+
+      - name: Stamp build number
+        id: stamp
+        # CFBundleVersion is Sparkle's monotonic comparison key — a UTC datestamp
+        # is globally increasing and unique across releases. Shared by both
+        # architectures so "newest build wins" holds within each feed. Second
+        # precision so two publishes started in the same minute can't collide.
+        run: echo "build=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Archive (Release, Developer ID, one archive per arch)
+        # ARCHS comes from the command line (project.yml pins arm64 for local
+        # builds); both archives share DerivedData — intermediates are keyed
+        # by arch, and the SPM graph resolves once. The thinning post-build
+        # phase strips the prebuilt fat Sparkle to ARCHS in each pass.
+        run: |
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            xcodebuild -scheme "$SCHEME" -configuration Release \
+              -derivedDataPath build/DerivedData \
+              -destination 'generic/platform=macOS' \
+              -archivePath "build/$APP_NAME-$ARCH.xcarchive" \
+              MARKETING_VERSION="${{ inputs.version }}" \
+              CURRENT_PROJECT_VERSION="${{ steps.stamp.outputs.build }}" \
+              ARCHS="$ARCH" ONLY_ACTIVE_ARCH=NO \
+              archive | xcbeautify
+          done
+
+      - name: Export archives
+        run: |
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            xcodebuild -exportArchive \
+              -archivePath "build/$APP_NAME-$ARCH.xcarchive" \
+              -exportOptionsPlist scripts/ci/ExportOptions.plist \
+              -exportPath "build/export-$ARCH" | xcbeautify
+            APP="build/export-$ARCH/$APP_NAME.app"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            # The whole point of per-arch apps: refuse to ship a bundle whose
+            # main binary or embedded Sparkle is fat or the wrong arch (the
+            # thinning post-build phase must have stripped the other slice).
+            echo "$APP main -> $(lipo -archs "$APP/Contents/MacOS/$APP_NAME")"
+            test "$(lipo -archs "$APP/Contents/MacOS/$APP_NAME")" = "$ARCH"
+            test "$(lipo -archs "$APP/Contents/Frameworks/Sparkle.framework/Sparkle")" = "$ARCH"
+          done
+
+      - name: Notarize and staple
+        env:
+          MACOS_NOTARIZATION_KEY: ${{ secrets.MACOS_NOTARIZATION_KEY }}
+          MACOS_NOTARIZATION_KEY_ID: ${{ secrets.MACOS_NOTARIZATION_KEY_ID }}
+          MACOS_NOTARIZATION_ISSUER_ID: ${{ secrets.MACOS_NOTARIZATION_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # The secret is base64 of the .p8 (see docs/RUNBOOK.md §1.2) — decode
+          # once here and reuse the key for the dmg notarization below.
+          echo -n "$MACOS_NOTARIZATION_KEY" | base64 --decode -o "$RUNNER_TEMP/notary_key.p8"
+          for ARCH in arm64 x86_64; do
+            APP="build/export-$ARCH/$APP_NAME.app"
+            ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize-$ARCH.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/notarize-$ARCH.zip" \
+              --key "$RUNNER_TEMP/notary_key.p8" \
+              --key-id "$MACOS_NOTARIZATION_KEY_ID" \
+              --issuer "$MACOS_NOTARIZATION_ISSUER_ID" --wait
+            xcrun stapler staple "$APP"
+          done
+
+      - name: Package update zips (stapled)
+        # One dist directory per arch: each is a separate generate_appcast scan
+        # root, so a feed can only ever see its own architecture's archive —
+        # cross-arch entries are structurally impossible.
+        run: |
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            mkdir -p "build/dist-$ARCH"
+            # The appcast download is the stapled app re-zipped AFTER stapling.
+            ditto -c -k --keepParent "build/export-$ARCH/$APP_NAME.app" \
+              "build/dist-$ARCH/$APP_NAME-${{ inputs.version }}-$ARCH.zip"
+          done
+
+      - name: Generate release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PREV="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+          {
+            echo "## CloseUp ${{ inputs.version }}"
+            echo
+            if [ -n "$PREV" ]; then
+              git log --no-merges --pretty='- %s' "${PREV}..HEAD"
+            else
+              git log --no-merges --pretty='- %s'
+            fi
+          } > build/release-notes.md
+          # Pair the notes with each arch's zip basename so generate_appcast
+          # embeds them into both feeds.
+          for ARCH in arm64 x86_64; do
+            cp build/release-notes.md \
+              "build/dist-$ARCH/$APP_NAME-${{ inputs.version }}-$ARCH.md"
+          done
+          cat build/release-notes.md
+
+      - name: Build appcasts (Sparkle, EdDSA-signed)
+        env:
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+          # Pass workflow inputs through env, never interpolate ${{ }} into the
+          # bash body: ${{ }} is expanded before bash parses the script, so a
+          # crafted input (release.yml's `version`/`tag` are free-text on
+          # dispatch) could otherwise inject shell syntax.
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          GA="$(find build/DerivedData/SourcePackages/artifacts -name generate_appcast -type f | head -1)"
+          echo -n "$SPARKLE_EDDSA_PRIVATE_KEY" > "$RUNNER_TEMP/eddsa_priv"
+          # Seed each feed from the canonical gh-pages branch (NOT the cached
+          # Pages URL) so update history is preserved; a transient fetch failure
+          # must FAIL LOUDLY rather than silently re-seed both feeds fresh and
+          # overwrite real history. Only a genuinely missing gh-pages branch (the
+          # first release ever) starts the feeds fresh — git ls-remote exits 2
+          # for "no such ref", any other non-zero is a real error.
+          if git ls-remote --exit-code origin refs/heads/gh-pages >/dev/null; then
+            git fetch --depth 1 origin gh-pages
+          else
+            rc=$?
+            if [ "$rc" -ne 2 ]; then
+              echo "error: could not query origin for gh-pages (exit $rc)" >&2
+              exit 1
+            fi
+            echo "No gh-pages branch yet — feeds start fresh"
+          fi
+          for ARCH in arm64 x86_64; do
+            # Symmetric per-arch feeds on gh-pages (appcast-arm64.xml /
+            # appcast-x86_64.xml); the legacy universal appcast.xml is a frozen
+            # 0.1.0 orphan we never touch (no compatibility shim — and unlike
+            # LockIME, whose legacy was arm64-only, CloseUp's 0.1.0 was UNIVERSAL,
+            # so arm64 entries must NOT land in appcast.xml or an Intel 0.1.0 would
+            # pull an arm64 build).
+            #
+            # The LOCAL working file is always appcast.xml: the arch already lives
+            # in the build/dist-$ARCH directory, and generate_appcast derives the
+            # output name from the app's SUFeedURL basename (Info.plist), which is
+            # appcast.xml — so no -o is needed and the per-arch name is applied
+            # ONLY at the gh-pages seed-source and publish-dest boundaries (this
+            # mirrors LockIME). Seed each arch from its OWN gh-pages feed so that
+            # arch's update history carries forward (generate_appcast reads the
+            # existing entries from build/dist-$ARCH/appcast.xml and rewrites it).
+            FEED="appcast-$ARCH.xml"
+            if git cat-file -e "origin/gh-pages:$FEED" 2>/dev/null; then
+              git show "origin/gh-pages:$FEED" > "build/dist-$ARCH/appcast.xml"
+            fi
+            # Args array is never empty at expansion time — expanding an empty
+            # array under set -u is fatal on the runners' bash 3.2.
+            GA_ARGS=(
+              --ed-key-file "$RUNNER_TEMP/eddsa_priv"
+              --embed-release-notes
+              --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/"
+            )
+            # Tag beta items with the beta channel so stable users never see
+            # them; each feed carries both channels.
+            if [ "$CHANNEL" = "beta" ]; then GA_ARGS+=(--channel beta); fi
+            "$GA" "${GA_ARGS[@]}" "build/dist-$ARCH"
+            test -f "build/dist-$ARCH/appcast.xml"
+          done
+
+      - name: Package dmgs (notarize + staple)
+        env:
+          MACOS_NOTARIZATION_KEY: ${{ secrets.MACOS_NOTARIZATION_KEY }}
+          MACOS_NOTARIZATION_KEY_ID: ${{ secrets.MACOS_NOTARIZATION_KEY_ID }}
+          MACOS_NOTARIZATION_ISSUER_ID: ${{ secrets.MACOS_NOTARIZATION_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            # Built into build/manual (which generate_appcast never scans) so the
+            # convenience installer can't leak into the auto-update feed.
+            DMG="build/manual/$APP_NAME-${{ inputs.version }}-$ARCH.dmg"
+            bash scripts/make-dmg.sh "build/export-$ARCH/$APP_NAME.app" "$DMG" "$APP_NAME"
+            xcrun notarytool submit "$DMG" \
+              --key "$RUNNER_TEMP/notary_key.p8" \
+              --key-id "$MACOS_NOTARIZATION_KEY_ID" \
+              --issuer "$MACOS_NOTARIZATION_ISSUER_ID" --wait
+            xcrun stapler staple "$DMG"
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          # Tag the built commit so the release matches exactly what shipped.
+          # Four artifacts: a zip (the Sparkle enclosure) and a dmg (manual
+          # download) for each architecture.
+          gh release create "$TAG" \
+            --target "${{ github.sha }}" \
+            --title "CloseUp ${{ inputs.version }}" \
+            --notes-file build/release-notes.md \
+            ${{ inputs.prerelease && '--prerelease' || '' }} \
+            "build/dist-arm64/$APP_NAME-${{ inputs.version }}-arm64.zip" \
+            "build/dist-x86_64/$APP_NAME-${{ inputs.version }}-x86_64.zip" \
+            "build/manual/$APP_NAME-${{ inputs.version }}-arm64.dmg" \
+            "build/manual/$APP_NAME-${{ inputs.version }}-x86_64.dmg"
+
+      - name: Publish appcasts to gh-pages
+        run: |
+          set -euo pipefail
+          # Publish ONLY the feed files to gh-pages — never binaries (those live
+          # on the Release CDN). Symmetric per-arch names; the legacy universal
+          # appcast.xml is left as-is (0.1.0 orphan, never rewritten).
+          WORK="$RUNNER_TEMP/pages"
+          git clone --depth 1 --branch gh-pages \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            "$WORK" 2>/dev/null || {
+              git init "$WORK"
+              git -C "$WORK" checkout -b gh-pages
+            }
+          cp build/dist-arm64/appcast.xml "$WORK/appcast-arm64.xml"
+          cp build/dist-x86_64/appcast.xml "$WORK/appcast-x86_64.xml"
+          git -C "$WORK" add appcast-arm64.xml appcast-x86_64.xml
+          git -C "$WORK" -c user.name=ci -c user.email=ci@oomol.com \
+            commit -m "release: appcasts for ${{ inputs.tag }}" || echo "no change"
+          git -C "$WORK" push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: Mint Homebrew tap token
+        # Cross-repo dispatch needs more than GITHUB_TOKEN (which is scoped
+        # to this repository), so mint a 1-hour installation token from the
+        # org's GitHub App (installed on homebrew-tap only, Contents r/w).
+        # Stable releases only — the cask tracks the stable channel.
+        id: tap-token
+        if: ${{ !inputs.prerelease }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.OOMOL_LAB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OOMOL_LAB_GITHUB_APP_PRIVATE_KEY }}
+          # Both owner AND repositories: the App is not installed on this
+          # repo, and owner alone would scope the token to every repo of
+          # the installation.
+          owner: oomol-lab
+          repositories: homebrew-tap
+          # Least privilege, and a fast failure at mint time (instead of a
+          # 403 at dispatch time) if the App's permissions ever change.
+          permission-contents: write
+
+      - name: Bump Homebrew cask (oomol-lab/homebrew-tap)
+        # The payload carries just the version: the tap's bump-closeup
+        # workflow re-downloads the published zips and computes the sha256
+        # hashes itself, so the cask can never disagree with the actual
+        # artifacts. Runs last on purpose: release + appcasts are already
+        # out if this fails.
+        if: ${{ !inputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh api repos/oomol-lab/homebrew-tap/dispatches \
+            -f event_type=closeup-release \
+            -f "client_payload[version]=$VERSION"

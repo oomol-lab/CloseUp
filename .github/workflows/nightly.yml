@@ -1,0 +1,94 @@
+name: Nightly (Beta)
+
+# The beta channel is the nightly build: every day at 01:00 UTC we build the
+# tip of main and publish it as the next patch of the latest stable +
+# "-beta.N" (stable 1.2.3 -> 1.2.4-beta.N, so nightlies version-sort above
+# the stable they follow) — a real tag plus a GitHub pre-release
+# (pre-releases are never "Latest"). Stable releases are dispatched manually
+# (see release.yml). Manual runs of this workflow are allowed via the Run
+# button.
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize against release.yml (same group): both publish a tag, a GitHub
+# Release, and the per-arch appcasts on gh-pages. cancel-in-progress: false queues
+# a newly triggered run instead of cancelling the in-flight one; queue: max then
+# keeps EVERY waiting run in line (FIFO, up to 100) — without it GitHub retains
+# only the most-recent pending run and silently cancels any earlier one, so a
+# release could be dropped when the nightly cron fires while another publish is
+# still running.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  version:
+    name: Gate & compute beta version
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.gate.outputs.should_build }}
+      version: ${{ steps.compute.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Skip when nothing landed since the last build
+        id: gate
+        # Every build (stable or beta) tags the commit it was built from, so
+        # "no commits since the newest release tag reachable from HEAD" means
+        # there is nothing new to ship — skip scheduled runs in that case (no
+        # empty nightlies). Also skip while no stable tag exists at all: the
+        # beta version is derived from the latest stable, so the first stable
+        # release must be dispatched before nightlies can start. Manual
+        # dispatches always build.
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git tag -l 'v*' | grep -qE '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "No stable tag yet — dispatch the first stable release to set the beta baseline. Skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LAST=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)
+          if [ -z "$LAST" ]; then
+            echo "No release tag reachable from HEAD — building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          COUNT=$(git rev-list --count "$LAST"..HEAD)
+          echo "Commits since $LAST: $COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute beta version
+        id: compute
+        if: steps.gate.outputs.should_build == 'true'
+        run: bash scripts/ci/compute_version.sh beta
+
+  publish:
+    name: Publish ${{ needs.version.outputs.tag }}
+    needs: version
+    if: needs.version.outputs.should_build == 'true'
+    uses: ./.github/workflows/build-publish.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      tag: ${{ needs.version.outputs.tag }}
+      channel: beta
+      prerelease: true
+    secrets: inherit

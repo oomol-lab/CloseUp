@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>ja</string>
+		<string>fr</string>
+		<string>de</string>
+		<string>es</string>
+		<string>pt</string>
+		<string>ru</string>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(CLOSEUP_BUNDLE_DISPLAY_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(CLOSEUP_BUNDLE_DISPLAY_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Hangzhou Wumou Software Co., Ltd. Licensed under GPL-3.0.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!-- Sparkle auto-update. The updater pins each architecture's appcast at
+	     compile time (UpdaterDelegate.feedURLString returns an explicit per-arch
+	     URL for BOTH arches), so release builds never read SUFeedURL — it is only
+	     a default. It carries the canonical `appcast.xml` basename for two reasons:
+	     it is the URL the universal 0.1.0 baked (now a frozen orphan), and CI's
+	     generate_appcast derives each build's working appcast filename from this
+	     basename (the per-arch feed name is applied only at the gh-pages boundary
+	     — see .github/workflows/build-publish.yml). SUPublicEDKey is CloseUp's OWN
+	     dedicated EdDSA (ed25519) public key whose private half (the
+	     SPARKLE_EDDSA_PRIVATE_KEY secret) signs the appcast in CI — generated under
+	     a distinct keychain account (`com.oomol.CloseUp`), NOT shared with LockIME,
+	     so a key compromise or rotation is scoped to this app alone. Sparkle decodes
+	     it at startUpdater and refuses to start if it is missing/invalid, so this
+	     MUST be a real key, never the old REPLACE_WITH_… placeholder (see
+	     docs/RUNBOOK.md §1.1). -->
+	<key>SUFeedURL</key>
+	<string>https://oomol-lab.github.io/CloseUp/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>87rgPjb6NxOUggn75Yv7iRylvHlLoViERAv3tRJ5JvM=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+</dict>
+</plist>

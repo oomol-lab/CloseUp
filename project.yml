@@ -1,0 +1,142 @@
+name: CloseUp
+
+options:
+  bundleIdPrefix: com.oomol
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: en
+  knownRegions: [en, zh-Hans, zh-Hant, ja, fr, de, es, pt, ru]
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Floor chosen by audit, not aspiration: the highest dependency minimum is
+    # PermissionFlow (13.0) and our own code bottoms out at @Observable (14.0)
+    # — going below 14 would mean rewriting the observation layer. Newer-OS
+    # API survives only behind #available with a fallback; the compiler
+    # enforces the rest.
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEAD_CODE_STRIPPING: YES
+    GCC_WARN_UNINITIALIZED_AUTOS: YES
+    CLANG_WARN_DOCUMENTATION_COMMENTS: NO
+    # Local builds are always 0.0.0-development; CI overrides both values at
+    # archive time (version from git tags, build number date-stamped — see
+    # .github/workflows/ and scripts/ci/compute_version.sh).
+    MARKETING_VERSION: "0.0.0-development"
+    CURRENT_PROJECT_VERSION: "1"
+    # Single-arch by design — CloseUp ships one app PER ARCHITECTURE (arm64 +
+    # x86_64), never a universal binary, valuing a smaller per-CPU download.
+    # ONLY_ACTIVE_ARCH=YES keeps local Debug builds fast (host arch only); the
+    # local default is arm64, and CI overrides per pass at archive time
+    # (`ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO`, see build-publish.yml), with
+    # `make build ARCH=x86_64` doing the same locally. A post-build phase thins
+    # the prebuilt fat Sparkle xcframework to the built arch (see the CloseUp
+    # target's postBuildScripts and scripts/thin-embedded-frameworks.sh).
+    ONLY_ACTIVE_ARCH: YES
+    ARCHS: arm64
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: "2.9.0"
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts.git
+    from: "1.10.0"
+  PermissionFlow:
+    url: https://github.com/jaywcjlove/PermissionFlow.git
+    from: "2.5.0"
+
+targets:
+  CloseUpKit:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/CloseUpKit
+    settings:
+      base:
+        PRODUCT_NAME: CloseUpKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.oomol.CloseUp.Kit
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+
+  CloseUp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/CloseUp
+    dependencies:
+      - target: CloseUpKit
+      - package: Sparkle
+      - package: KeyboardShortcuts
+      - package: PermissionFlow
+    settings:
+      base:
+        PRODUCT_NAME: CloseUp
+        PRODUCT_MODULE_NAME: CloseUp
+        PRODUCT_BUNDLE_IDENTIFIER: com.oomol.CloseUp
+        CLOSEUP_BUNDLE_DISPLAY_NAME: CloseUp
+        INFOPLIST_FILE: Sources/CloseUp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/CloseUp/CloseUp.entitlements
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Manual
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+      configs:
+        Debug:
+          # Debug is a distinct app identity so a local dev build never collides
+          # with the installed release in Launch Services, the login-item slot,
+          # or shared defaults.
+          PRODUCT_NAME: CloseUp Dev
+          PRODUCT_BUNDLE_IDENTIFIER: com.oomol.CloseUp.dev
+          CLOSEUP_BUNDLE_DISPLAY_NAME: CloseUp Dev
+          CODE_SIGN_IDENTITY: "-"
+          DEVELOPMENT_TEAM: ""
+          ENABLE_HARDENED_RUNTIME: NO
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: PWJ9VF7HHT
+    postBuildScripts:
+      # Sparkle ships as a fat (arm64 + x86_64) xcframework; since we ship
+      # single-arch apps, strip the unused slice and re-sign (saves ~1.4 MB).
+      - name: Thin embedded frameworks to ARCHS
+        script: '"$PROJECT_DIR/scripts/thin-embedded-frameworks.sh"'
+        basedOnDependencyAnalysis: false
+
+  CloseUpTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/CloseUpKitTests
+    dependencies:
+      - target: CloseUpKit
+      # Embeds KeyboardShortcuts_KeyboardShortcuts.bundle in the test bundle so
+      # LocalizationGuardTests can pin its name and per-language lproj coverage.
+      - package: KeyboardShortcuts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oomol.CloseUp.Tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+
+schemes:
+  CloseUp:
+    build:
+      targets:
+        CloseUp: all
+        CloseUpTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - CloseUpTests
+    archive:
+      config: Release
