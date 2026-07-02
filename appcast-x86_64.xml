@@ -3,6 +3,19 @@
     <channel>
         <title>CloseUp</title>
         <item>
+            <title>1.0.1-beta.1</title>
+            <pubDate>Thu, 02 Jul 2026 09:37:59 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>20260702093636</sparkle:version>
+            <sparkle:shortVersionString>1.0.1-beta.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.1-beta.1
+
+- fix(settings): open Settings on reopen via self-managed window (#1)
+]]></description>
+            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.1-beta.1/CloseUp-1.0.1-beta.1-x86_64.zip" length="2226647" type="application/octet-stream" sparkle:edSignature="yurrQ7QKlftyYrkqgtSBtlFnQvPF+by5C7tLnnP90QZzFh7kmXdP0pRFWGWgy+1eoXu5wyESQHpbHCYZPXyvAw=="/>
+        </item>
+        <item>
             <title>1.0.0</title>
             <pubDate>Thu, 02 Jul 2026 07:48:05 +0000</pubDate>
             <sparkle:version>20260702074639</sparkle:version>
