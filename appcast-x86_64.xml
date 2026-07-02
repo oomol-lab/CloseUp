@@ -1,0 +1,18 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>CloseUp</title>
+        <item>
+            <title>1.0.0</title>
+            <pubDate>Thu, 02 Jul 2026 07:48:05 +0000</pubDate>
+            <sparkle:version>20260702074639</sparkle:version>
+            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.0
+
+- init project
+]]></description>
+            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.0/CloseUp-1.0.0-x86_64.zip" length="2227248" type="application/octet-stream" sparkle:edSignature="+mTixVd+JTXFWSFUHrAG5U6fMGmOIfeijhR+eU0goJaa4KNBw3qgLg7vXWJo5PPHp5YbczgxNlMxlutm1xqICg=="/>
+        </item>
+    </channel>
+</rss>
