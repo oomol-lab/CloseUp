@@ -4,6 +4,26 @@
 
 **Remettez les contrôles dans Mission Control.** CloseUp superpose des contrôles de fenêtre sur Mission Control natif de macOS — fermez, réduisez, agrandissez, masquez ou quittez n’importe quelle fenêtre sans quitter l’aperçu — et ajoute un contrôle complet au clavier. Gratuit, natif et open source.
 
+## Captures d’écran
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="Contrôles de fenêtre superposés sur une vignette de Mission Control" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="Réglages généraux" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="Raccourcis clavier" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## Fonctionnalités
 
 - **Fermeture depuis l’aperçu** — survolez la miniature d’une fenêtre dans Mission Control et cliquez sur le × rouge pour la fermer instantanément, sans avoir à y basculer au préalable.

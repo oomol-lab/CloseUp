@@ -4,6 +4,26 @@
 
 **コントロールを Mission Control に取り戻す。** CloseUp は、ウィンドウのコントロールをネイティブの macOS Mission Control 上に重ねて表示します。概要表示から離れることなく、任意のウィンドウを閉じる、しまう、最大化、隠す、または終了でき、さらにフルキーボード操作も追加します。無料・ネイティブ・オープンソース。
 
+## スクリーンショット
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="Mission Control のサムネイルに重ねたウィンドウコントロール" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="一般設定" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="キーボードショートカット" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## 機能
 
 - **概要から閉じる** — Mission Control でウィンドウのサムネールにポインタを重ね、赤い × をクリックすれば、そのウィンドウに切り替えることなく即座に閉じられます。

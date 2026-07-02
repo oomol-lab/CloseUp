@@ -4,6 +4,26 @@
 
 **让控制按钮回归调度中心。**CloseUp 将窗口控制按钮叠加到 macOS 原生调度中心上——无需离开总览即可关闭、最小化、最大化、隐藏或退出任意窗口——并加入完整的键盘控制。免费、原生、开源。
 
+## 截图
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="叠加在调度中心缩略图上的窗口控制按钮" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-zh-CN-dark.png">
+    <img alt="常规设置" src="../images/settings-general-zh-CN-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-zh-CN-dark.png">
+    <img alt="键盘快捷键" src="../images/settings-shortcuts-zh-CN-light.png" width="49%">
+  </picture>
+</p>
+
 ## 功能特性
 
 - **在总览中关闭** —— 在调度中心中将指针悬停到窗口缩略图上，点击红色的 × 即可立即关闭该窗口，无需先切换过去。

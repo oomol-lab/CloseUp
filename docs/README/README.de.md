@@ -8,6 +8,26 @@ im Dock ablegen, maximieren, ausblenden oder beenden Sie ein beliebiges Fenster,
 ohne die Übersicht zu verlassen — und ergänzt sie um vollständige
 Tastatursteuerung. Kostenlos, nativ und quelloffen.
 
+## Screenshots
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="Fenstersteuerung über einer Mission-Control-Miniatur" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="Allgemeine Einstellungen" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="Tastaturkurzbefehle" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## Funktionen
 
 - **Schließen aus der Übersicht** — bewegen Sie den Zeiger über ein

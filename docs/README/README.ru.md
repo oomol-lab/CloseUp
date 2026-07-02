@@ -4,6 +4,26 @@
 
 **Верните элементы управления в Mission Control.** CloseUp накладывает элементы управления окнами на нативный Mission Control в macOS — закрывайте, сворачивайте, разворачивайте, скрывайте или завершайте любое окно, не покидая обзор, — и добавляет полное управление с клавиатуры. Бесплатно, нативно и с открытым исходным кодом.
 
+## Снимки экрана
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="Элементы управления окном поверх миниатюры Mission Control" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="Основные настройки" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="Сочетания клавиш" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## Возможности
 
 - **Закрытие из обзора** — наведите указатель на миниатюру окна в Mission Control и нажмите красный ×, чтобы мгновенно закрыть окно, не переключаясь на него.

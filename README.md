@@ -19,6 +19,26 @@ onto the native macOS Mission Control — close, minimize, maximize, hide, or
 quit any window without leaving the overview — and adds full keyboard control.
 Free, native, and open source.
 
+## Screenshots
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/overlay-dark.png">
+    <img alt="Window controls on a Mission Control thumbnail" src="docs/images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-general-en-dark.png">
+    <img alt="General settings" src="docs/images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-shortcuts-en-dark.png">
+    <img alt="Keyboard shortcuts" src="docs/images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## Features
 
 - **Close from the overview** — hover a window thumbnail in Mission Control and

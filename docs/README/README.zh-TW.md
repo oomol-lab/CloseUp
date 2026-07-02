@@ -4,6 +4,26 @@
 
 **將視窗控制項放回調度中心。** CloseUp 將視窗控制項疊加到原生的 macOS 調度中心上——無需離開總覽即可關閉、縮到最小、最大化、隱藏或結束任何視窗——並加入完整的鍵盤控制。免費、原生、開放原始碼。
 
+## 螢幕截圖
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="疊加在調度中心縮圖上的視窗控制項" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="一般設定" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="鍵盤快捷鍵" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## 功能
 
 - **從總覽關閉** — 在調度中心將指標移到視窗縮覽圖上，點按紅色的 × 即可立即關閉，無需先切換到該視窗。

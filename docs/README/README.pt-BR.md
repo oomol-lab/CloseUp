@@ -7,6 +7,26 @@ ao Mission Control nativo do macOS — feche, minimize, maximize, oculte ou ence
 janela sem sair da visão geral — e adiciona controle total pelo teclado.
 Gratuito, nativo e de código aberto.
 
+## Capturas de tela
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/overlay-dark.png">
+    <img alt="Controles de janela sobre uma miniatura do Mission Control" src="../images/overlay-light.png" width="48%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-general-en-dark.png">
+    <img alt="Configurações gerais" src="../images/settings-general-en-light.png" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/settings-shortcuts-en-dark.png">
+    <img alt="Atalhos de teclado" src="../images/settings-shortcuts-en-light.png" width="49%">
+  </picture>
+</p>
+
 ## Recursos
 
 - **Feche pela visão geral** — passe o ponteiro sobre a miniatura de uma janela no Mission Control e
