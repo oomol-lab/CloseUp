@@ -499,6 +499,23 @@ root with `.id(localeIdentifier)` to rebuild the subtree (`localized(with:)`).
   keys). Cross-boundary machine-facing text (error codes) stays English.
 - **Guard tests** (`Tests/CloseUpKitTests/LocalizationGuardTests.swift`) enforce
   the above; keep them green and extend them as new surfaces/packages appear.
+- **`Localizable.xcstrings` language codes ≠ `docs/README/` filename codes —
+  don't cross-reference them by string-matching.** The catalog keys locales as
+  `zh-Hans`/`zh-Hant`/`pt`; the README filenames are `README.zh-CN.md`/
+  `README.zh-TW.md`/`README.pt-BR.md`. When pulling an in-app button label into
+  prose (e.g. a README feature table), look it up by the xcstrings code, not by
+  guessing from the doc filename. Verified: the German catalog's `Minimize` is
+  **"Im Dock ablegen"**, not "minimieren" — a README/doc written from
+  intuition rather than the catalog will silently drift from what the UI
+  actually shows.
+- **`docs/README/README.*.md` are one directory deeper than root — relative
+  links must account for it.** Links copy-pasted from the root `README.md`
+  (`docs/DESIGN.md`, `docs/RUNBOOK.md`, `LICENSE`) resolve to
+  `docs/README/docs/DESIGN.md` etc. from inside `docs/README/` and 404 on
+  GitHub. Use `../DESIGN.md`, `../RUNBOOK.md`, `../../LICENSE` in every
+  translated README instead — this was wrong in all 8 language files
+  simultaneously (copy-pasted once from the same wrong template) until fixed
+  2026-07.
 
 ## Quality bars
 
