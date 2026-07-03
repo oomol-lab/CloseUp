@@ -97,6 +97,58 @@ public enum OverlayCapabilityPolicy {
     }
 }
 
+/// Outcome-class counts of one background-resolve batch, for the one-shot
+/// "prewarm all-dark" field tripwire: a session whose windows are real Mission
+/// Control thumbnails should virtually always resolve at least ONE window with
+/// buttons — a batch of several windows where none did is the fingerprint of the
+/// AX matching pipeline breaking OS-wide (e.g. `_AXUIElementGetWindow` no longer
+/// pairing AX elements with CGWindowIDs, or trusted-but-failing AX reads), which
+/// presents in the field as "no lights anywhere, permission granted".
+public struct CapabilityBatchSummary: Equatable, Sendable {
+    /// Windows that resolved with at least one title-bar button.
+    public let withButtons: Int
+    /// Windows that authoritatively resolved buttonless (`.resolved(.none)`).
+    public let none: Int
+    /// Windows whose app failed to answer (`.indeterminate`).
+    public let indeterminate: Int
+    /// Windows reported while Accessibility is untrusted (`.unavailable`).
+    public let unavailable: Int
+
+    public init(of resolutions: some Sequence<CapabilityResolution>) {
+        var withButtons = 0, none = 0, indeterminate = 0, unavailable = 0
+        for resolution in resolutions {
+            switch resolution {
+            case .resolved(let capabilities) where capabilities != WindowCapabilities.none:
+                withButtons += 1
+            case .resolved:
+                none += 1
+            case .indeterminate:
+                indeterminate += 1
+            case .unavailable:
+                unavailable += 1
+            }
+        }
+        self.withButtons = withButtons
+        self.none = none
+        self.indeterminate = indeterminate
+        self.unavailable = unavailable
+    }
+
+    /// True when Accessibility answered (trusted) yet not one window in the
+    /// batch resolved a single button. `.unavailable` batches are excluded: the
+    /// untrusted path is a known mode with its own fallback (show every enabled
+    /// action) and its own log fingerprint (`observer armed … trusted=n`), so
+    /// flagging it here would be noise, not signal.
+    public var isAllDark: Bool {
+        withButtons == 0 && unavailable == 0 && (none + indeterminate) > 0
+    }
+
+    /// Compact form for the one `.notice` tripwire log line.
+    public var logDescription: String {
+        "buttons=\(withButtons) none=\(none) indeterminate=\(indeterminate) unavailable=\(unavailable)"
+    }
+}
+
 /// Resolves a window's `WindowCapabilities` from its live Accessibility element.
 @MainActor
 public protocol WindowCapabilityResolving {

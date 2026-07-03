@@ -149,6 +149,38 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   and silently captures zero lines — the real cause of the "app emits no logs"
   trap (it is NOT word-splitting). Use, from a script file:
   `/usr/bin/log stream --predicate 'subsystem == "com.oomol.CloseUp"' --info --style compact`.
+- **Field diagnosis of "no lights" reports (no repro machine needed):**
+  `scripts/diagnose-mission-control.sh` runs zero-dependency on the affected
+  machine (CGWindowList via the JXA ObjC bridge — NB `ObjC.deepUnwrap` needs
+  `ObjC.castRefToObject(ref)` on a CF return; `$.CFBridgingRelease` segfaults) and
+  captures (a) the window-layer landscape before/during Mission Control — where
+  the exposé surface lives if a release moves it off Dock/layer-18 — and (b) the
+  live `--debug` stream through one manual repro. Additionally three one-shot
+  `.notice` engine tripwires make the failure tree readable from a plain post-hoc
+  `log show` (all silent on a healthy system): "expose surface never seen this
+  session" + non-zero-layer window dump (layer/owner moved → re-pin
+  `MissionControlSurface`), "capability prewarm ALL-DARK" (AX trusted yet no
+  window resolved buttons → `_AXUIElementGetWindow`-class break), and "layout
+  never settled" + churn sample (settle gate starved — e.g. an OS re-animating
+  thumbnails continuously; this one also SELF-HEALS, see the degraded-settle
+  fallback in the settle-gate rule below). With the SHIPPED app the notice lifecycle lines alone
+  already discriminate: no `session begin` = open-detection dead; begin +
+  `end session` ~600 ms later = layer-18 gone but AX notification alive;
+  `begin (windows=0)` = enumeration empty; begin but never `layout settled` =
+  settle starvation; settled + `overlay show` (live stream only) yet nothing
+  visible = z-order sink.
+- **macOS 27 "Golden Gate" (Apple-Silicon-only; beta 1 `26A5353q`, beta 2
+  `26A5368g`): synthetic Mission Control gestures are DEAD.** The Dock ignores
+  DockSwipe CGEvents unless they carry the raw IOKit HID payload in private
+  serialized-event field 4205 (root-caused in mac-mouse-fix PR #1895), so
+  `dockswipe mission-control` silently no-ops there — only a real trackpad (or
+  `open -b com.apple.exposelauncher`, which still works) can drive MC on 27.
+  Verified context from the 27 betas: MC machinery still lives in the Dock
+  process (yabai's Dock byte-signatures resolve on both betas), and
+  CGWindowList enumeration / AX actions / `_AXUIElementGetWindow` all have
+  peer apps working on the beta — when 27 breaks something here, suspect the
+  private *signals* (layers, notifications, animation timing), not the process
+  architecture or the public APIs.
 - Enumerate window frames with `CGWindowListCopyWindowInfo(.optionOnScreenOnly)`,
   keep `kCGWindowLayer == 0`, drop the Dock. Map a frame to its AX window by
   CGWindowID via private `_AXUIElementGetWindow`.
@@ -325,6 +357,21 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   uniform rule. Verified with `dockswipe mission-control --steps 60 --interval 16000`
   (~1 s slow enter) + live `log stream`: pre-fix 3 `overlay show` at moving positions
   during the enter; post-fix 0 during the enter, one at the settled position.
+  **Starvation fallback (degraded settle):** the strict exact gate can be STARVED
+  by an OS that keeps thumbnails in perpetual micro-motion (macOS 27 "Golden
+  Gate" re-animated Mission Control — staged reveal + ease-out tails — and the
+  gate never flipped, so no lights ever appeared while permissions/AX were
+  fine). After ~5 s of continuous churn (`churnStarvationTicks`, far beyond any
+  real enter/re-tile animation) the engine logs the one-shot churn-sample
+  tripwire and switches churn judgment to
+  `ThumbnailLayout.didRetile(from:to:tolerance:)` with a 2 px per-edge tolerance
+  (`degradedSettle`), so micro-jitter reads as settled and the lights recover
+  through the NORMAL settle path (same rebuild + sink-watch). A real re-tile
+  (tens of px/tick) still churns in degraded mode; membership changes churn at
+  any tolerance. Reset to strict at every session begin/resync/end. Do NOT
+  loosen the strict gate itself: tolerance from tick zero re-introduces the
+  "paused swipe shows early" bug — the fallback exists precisely so the strict
+  rule can stay strict.
 - **Gate display on cursor MOVEMENT too — the lights appear only when the pointer
   MOVES, never on a stationary cursor. This is the load-bearing one; frame-settle
   alone is NOT enough.** The mechanism: drive the overlay off a poll whose show path
