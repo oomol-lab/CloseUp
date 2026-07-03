@@ -1,23 +1,46 @@
 import CoreGraphics
 import Foundation
 
-/// The undocumented-but-stable Dock internal that fingerprints Mission Control
-/// being on screen. It is version-fragile, so it lives here in ONE place on
-/// purpose — centralizing it gives forward-compat headroom if a macOS release
-/// changes it.
+/// The undocumented-but-stable system internals that fingerprint Mission Control
+/// being on screen. They are version-fragile, so they live here in ONE place on
+/// purpose — centralizing them gives forward-compat headroom when a macOS
+/// release changes them (macOS 27 did — see below).
 public enum MissionControlSurface {
     /// The Dock draws its exposé surface at this window layer for the whole time
-    /// Mission Control is visible — the reliable signal for BOTH opening and
-    /// closing a session.
+    /// Mission Control is visible on macOS ≤26 — the reliable signal for BOTH
+    /// opening and closing a session there.
     public static let exposeLayer = 18
 
-    /// Whether `windows` (a raw `CGWindowListCopyWindowInfo` array) contains the
-    /// Dock-owned layer-18 exposé surface. This is the authority for both opening
-    /// and ending a session.
-    public static func exposeSurfacePresent(in windows: [[String: Any]], dockPID: pid_t) -> Bool {
+    /// macOS 27 "Golden Gate" moved the exposé surface OUT of the Dock: while
+    /// Mission Control is visible, `WindowManager` (the Stage Manager process,
+    /// `com.apple.WindowManager`) owns one screen-sized window per display at
+    /// THIS layer, and the Dock owns nothing beyond its ordinary layer-20 bar
+    /// (verified on 26A5368g, beta 2: Dock layers during MC = {20}, WindowManager
+    /// layers = {19 fullscreen ×displays, 17 sentinel, 14 Spaces strips, 2, 0}).
+    /// The Dock also stopped posting the `AXExpose*` notifications there, so this
+    /// poll signal is the ONLY open-detection on 27. NB WindowManager exists
+    /// since Ventura and owns only offscreen (negative-layer) windows while MC is
+    /// closed, so matching its layer-19 window is as tight a fingerprint as the
+    /// Dock's layer-18 was; Stage Manager interplay is unverified (no test
+    /// machine with it enabled) — if a false session ever surfaces, suspect that.
+    public static let windowManagerExposeLayer = 19
+
+    /// Whether `windows` (a raw `CGWindowListCopyWindowInfo` array) contains a
+    /// live exposé surface — the Dock-owned layer-18 window (macOS ≤26) or the
+    /// WindowManager-owned layer-19 window (macOS 27+). Checked as an OR of both
+    /// generations rather than a version switch: each signal is pid+layer-exact,
+    /// neither occurs outside Mission Control on the other's OS, and the OR
+    /// self-selects without trusting version numbers. This is the authority for
+    /// both opening and ending a session.
+    public static func exposeSurfacePresent(
+        in windows: [[String: Any]], dockPID: pid_t?, windowManagerPID: pid_t?
+    ) -> Bool {
         windows.contains { window in
-            (window[kCGWindowOwnerPID as String] as? pid_t) == dockPID
-                && (window[kCGWindowLayer as String] as? Int) == exposeLayer
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = window[kCGWindowLayer as String] as? Int
+            else { return false }
+            return (dockPID != nil && pid == dockPID && layer == exposeLayer)
+                || (windowManagerPID != nil && pid == windowManagerPID && layer == windowManagerExposeLayer)
         }
     }
 

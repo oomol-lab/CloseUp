@@ -109,20 +109,27 @@ in notarized Developer-ID apps; they bar Mac App Store distribution, which is ou
 of scope). Every API and Dock signal below was verified directly against macOS
 behaviour (live `CGWindowList` / AX inspection) and the official headers.
 
-- Mission Control is drawn by the **Dock** (`com.apple.dock`). Detect *open* with
-  an `AXObserver` on the Dock pid for `AXExposeShowAllWindows` /
-  `AXExposeShowFrontWindows`.
+- Mission Control is drawn by the **Dock** (`com.apple.dock`) on macOS ≤26; on
+  **macOS 27+ its exposé surface is composited by `WindowManager`**
+  (`com.apple.WindowManager`, the Stage Manager process) — see the macOS 27
+  bullet below. Detect *open* on ≤26 with an `AXObserver` on the Dock pid for
+  `AXExposeShowAllWindows` / `AXExposeShowFrontWindows` — a fast-path only; on
+  27 those notifications are NOT posted (verified: observer armed, MC opened,
+  nothing fired), so the surface poll below is the only open detection there.
 - **Do NOT use `AXExposeExit` to detect *close* — it is unreliable.** A 3-finger
   trackpad swipe fires `AXExposeExit` while Mission Control stays open (even a
   swipe that changes no Space), so tearing the session down on it makes the
   lights vanish on every window for the rest of the MC session until MC is
-  reopened. Detect close by **polling a reliable signal: the Dock owns an exposé
-  surface at window layer 18 (`kCGWindowLayer == 18`) only while MC is visible**
-  — match it by the Dock pid (`kCGWindowOwnerPID`; the owner *name* is localized,
-  e.g. "程序坞"), debounce a few misses, then `endSession`. (Polling beats the
+  reopened. Detect close by **polling a reliable signal: exactly while MC is
+  visible, the Dock owns an exposé surface at window layer 18 (macOS ≤26) — or
+  WindowManager owns one at layer 19 (macOS 27+)** — match by owner pid
+  (`kCGWindowOwnerPID`; the owner *name* is localized, e.g. "程序坞"), OR the two
+  generations (`MissionControlSurface.exposeSurfacePresent`, no version switch:
+  each signal is pid+layer-exact and neither occurs outside MC on the other's
+  OS), debounce a few misses, then `endSession`. (Polling beats the
   notifications: the AX expose events are unreliable under trackpad swipes, so a
   notification-driven design — which mirrors our old approach — has the same latent
-  bug the layer-18 poll avoids.)
+  bug the surface poll avoids.)
 - **The Dock observer must self-heal — it is NOT fire-and-forget.** Two hard-won
   failure modes silently kill the overlay on *every* desktop until relaunch:
   (a) the `AXObserver` binds to the Dock pid captured at arm time, so a Dock
@@ -170,17 +177,42 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   settle starvation; settled + `overlay show` (live stream only) yet nothing
   visible = z-order sink.
 - **macOS 27 "Golden Gate" (Apple-Silicon-only; beta 1 `26A5353q`, beta 2
-  `26A5368g`): synthetic Mission Control gestures are DEAD.** The Dock ignores
-  DockSwipe CGEvents unless they carry the raw IOKit HID payload in private
-  serialized-event field 4205 (root-caused in mac-mouse-fix PR #1895), so
-  `dockswipe mission-control` silently no-ops there — only a real trackpad (or
-  `open -b com.apple.exposelauncher`, which still works) can drive MC on 27.
-  Verified context from the 27 betas: MC machinery still lives in the Dock
-  process (yabai's Dock byte-signatures resolve on both betas), and
-  CGWindowList enumeration / AX actions / `_AXUIElementGetWindow` all have
-  peer apps working on the beta — when 27 breaks something here, suspect the
-  private *signals* (layers, notifications, animation timing), not the process
-  architecture or the public APIs.
+  `26A5368g`) rehomed Mission Control's composition — three verified-on-27
+  facts, each independently fatal to the ≤26 recipe:**
+  (1) **The exposé surface is now WindowManager's, at layer 19** — during MC the
+  Dock owns nothing beyond its layer-20 bar, while `com.apple.WindowManager`
+  owns one screen-sized layer-19 window per display (plus layer-14 Spaces
+  strips, a layer-17 1×1 sentinel, and layer-0/2 auxiliaries); idle, it owns
+  only far-negative-layer backstops. The Dock also **no longer posts the
+  `AXExpose*` notifications** (observer armed + trusted, MC opened, zero
+  callbacks). Detection ORs Dock@18 with WindowManager@19
+  (`MissionControlSurface`); real app windows still enumerate at layer 0
+  re-tiled to thumbnail frames, exactly as on ≤26.
+  (2) **WindowManager draws a layer-0 hover-highlight window** a few px larger
+  than, and on top of, whichever thumbnail the cursor is over (987×750 chrome
+  around a 975×737 thumbnail) — without pid-excluding WindowManager from the
+  hover candidates, `frontmost(containing:)` resolves that chrome for EVERY
+  hovered thumbnail and the lights stay dark on all of them (the localized-Dock
+  bug class, new owner).
+  (3) **MC hides every non-participating window regardless of level unless it
+  has `.stationary`** — A/B-probed on 26A5368g: `.screenSaver`-level AND
+  shielding-level windows both vanish while MC is open; adding `.stationary`
+  ("unaffected by Exposé") to either makes it composite above the exposé
+  surface. Every pipeline stage lies healthy through this failure (`session
+  begin`, `layout settled`, `overlay show visible=y onActiveSpace=y`) with
+  nothing on screen — the documented "visible=y is a LIAR" class. The overlay
+  inserts `.stationary` behind `#available(macOS 27.0, *)` only: ≤26's
+  Dock-drawn MC composites the overlay correctly with the base set and that
+  shipped-working recipe must not change untested.
+  Also: **synthetic Mission Control gestures are DEAD on 27** — the Dock
+  ignores DockSwipe CGEvents unless they carry the raw IOKit HID payload in
+  private serialized-event field 4205 (root-caused in mac-mouse-fix PR #1895),
+  so `dockswipe mission-control` silently no-ops; drive MC with a real trackpad
+  or `open -b com.apple.exposelauncher` (verified working, incl. toggle-close).
+  The settle gate did NOT starve on 27 in local verification (strict settle
+  flips ~600 ms after enter) — the degraded-settle fallback stays as hardening,
+  not as the 27 fix. Full pipeline (detect → settle → hover → render → click
+  action → session end) verified on-screen on 26A5368g.
 - Enumerate window frames with `CGWindowListCopyWindowInfo(.optionOnScreenOnly)`,
   keep `kCGWindowLayer == 0`, drop the Dock. Map a frame to its AX window by
   CGWindowID via private `_AXUIElementGetWindow`.
@@ -315,7 +347,10 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   — even one that changes no Space (e.g. swiping past the last desktop) — hides
   the overlay for the rest of the MC session; lights vanish on every window until
   MC is reopened. Use `[.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]`
-  (an overlay that sets none of these is immune). The trigger is the *gesture*, not
+  (an overlay that sets none of these is immune), **plus `.stationary` on macOS
+  27+ only** — required there for the overlay to be composited at all during MC
+  (see the macOS 27 bullet), gated by `#available` so the ≤26 shipped-working
+  recipe stays untouched. The trigger is the *gesture*, not
   the Space change — reproduce with the real trackpad swipe; `⌃→`/`⌃←` keyboard
   Space-switches do NOT trigger it.
 - **Rebuild the overlay `NSWindow` on every MC re-tile — detect it by thumbnail
@@ -478,10 +513,11 @@ conventional behaviour; each is intentional and load-bearing.
   hover the next). Do NOT add any step that auto-dismisses MC after an action: it
   breaks the back-to-back flow, and injecting synthetic keys would fight our own
   CGEvent tap.
-- **MC-open detection is layer-18-authoritative.** CloseUp drives the whole session
-  lifecycle — open, resync, and close — off the Dock's layer-18 exposé surface
-  (`MissionControlSurface` + the lifecycle poll), the one signal reliably present
-  exactly while MC is on screen. `mcSurfacePresent` tracks that live surface and
+- **MC-open detection is exposé-surface-authoritative.** CloseUp drives the whole
+  session lifecycle — open, resync, and close — off the exposé surface poll
+  (`MissionControlSurface` + the lifecycle poll; Dock@layer-18 on ≤26 OR
+  WindowManager@layer-19 on 27+), the one signal reliably present exactly while
+  MC is on screen. `mcSurfacePresent` tracks that live surface and
   gates in-MC shortcut/click interception, so a shortcut pressed in the ~600 ms
   close-miss debounce tail (after the surface is already gone) is not swallowed and
   acted on a stale thumbnail.

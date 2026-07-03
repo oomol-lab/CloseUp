@@ -24,6 +24,20 @@ public final class MissionControlObserver {
     /// The live Dock pid right now, or `nil` if the Dock isn't running.
     public static func currentDockPID() -> pid_t? { dockPID() }
 
+    /// The live `WindowManager` pid (`com.apple.WindowManager`, the Stage
+    /// Manager process), or `nil` where it isn't running. On macOS 27+ it owns
+    /// the Mission Control exposé surface (layer 19) that used to be the Dock's
+    /// layer-18 window, so the lifecycle poll needs its pid for the same
+    /// pid-keyed match (`kCGWindowOwnerName` is unreliable as a key by house
+    /// rule, even though "WindowManager" happens not to localize). Resolved
+    /// live per call for the same reason as the Dock pid: never assume a system
+    /// process's pid is stable across relaunches.
+    public static func currentWindowManagerPID() -> pid_t? {
+        NSWorkspace.shared.runningApplications
+            .first { $0.bundleIdentifier == "com.apple.WindowManager" }?
+            .processIdentifier
+    }
+
     /// Begin observing. `onChange` fires on the main actor for *every* expose
     /// notification the Dock posts — the caller is expected to reconcile
     /// idempotently, so no de-duplication happens here (a dropped/coalesced

@@ -25,23 +25,68 @@ struct MissionControlSurfaceTests {
         ]
     }
 
-    @Test("exposeSurfacePresent is true only for a Dock-owned layer-18 window")
-    func exposeSurface() {
+    private let windowManagerPID: pid_t = 983
+
+    @Test("exposeSurfacePresent (macOS ≤26 shape): true only for a Dock-owned layer-18 window")
+    func exposeSurfaceDock() {
         let withSurface = [
             window(pid: 10, layer: 0),
             window(pid: dockPID, layer: MissionControlSurface.exposeLayer), // the surface
         ]
-        #expect(MissionControlSurface.exposeSurfacePresent(in: withSurface, dockPID: dockPID))
+        #expect(MissionControlSurface.exposeSurfacePresent(
+            in: withSurface, dockPID: dockPID, windowManagerPID: windowManagerPID))
 
         // A layer-18 window owned by something OTHER than the Dock doesn't count.
         let foreignLayer18 = [window(pid: 99, layer: MissionControlSurface.exposeLayer)]
-        #expect(!MissionControlSurface.exposeSurfacePresent(in: foreignLayer18, dockPID: dockPID))
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: foreignLayer18, dockPID: dockPID, windowManagerPID: windowManagerPID))
 
         // The Dock at a different layer (MC closed) doesn't count.
         let dockOtherLayer = [window(pid: dockPID, layer: 0)]
-        #expect(!MissionControlSurface.exposeSurfacePresent(in: dockOtherLayer, dockPID: dockPID))
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: dockOtherLayer, dockPID: dockPID, windowManagerPID: windowManagerPID))
 
-        #expect(!MissionControlSurface.exposeSurfacePresent(in: [], dockPID: dockPID))
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: [], dockPID: dockPID, windowManagerPID: windowManagerPID))
+    }
+
+    @Test("exposeSurfacePresent (macOS 27 shape): true for a WindowManager-owned layer-19 window")
+    func exposeSurfaceWindowManager() {
+        // The verified Golden Gate landscape: Dock only at layer 20, WindowManager
+        // at 19 (the surface) plus its MC auxiliaries — 19 alone must open.
+        let goldenGate = [
+            window(pid: dockPID, layer: 20),
+            window(pid: windowManagerPID, layer: MissionControlSurface.windowManagerExposeLayer),
+            window(pid: windowManagerPID, layer: 14),
+            window(pid: windowManagerPID, layer: 0),
+        ]
+        #expect(MissionControlSurface.exposeSurfacePresent(
+            in: goldenGate, dockPID: dockPID, windowManagerPID: windowManagerPID))
+
+        // WindowManager idle (MC closed) owns no layer-19 window → no session.
+        let idle = [window(pid: dockPID, layer: 20), window(pid: windowManagerPID, layer: 0)]
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: idle, dockPID: dockPID, windowManagerPID: windowManagerPID))
+
+        // The generations don't cross-match: Dock@19 / WindowManager@18 are not surfaces.
+        let crossed = [
+            window(pid: dockPID, layer: MissionControlSurface.windowManagerExposeLayer),
+            window(pid: windowManagerPID, layer: MissionControlSurface.exposeLayer),
+        ]
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: crossed, dockPID: dockPID, windowManagerPID: windowManagerPID))
+    }
+
+    @Test("either pid may be absent — the other signal still opens, and no pids means no session")
+    func exposeSurfaceMissingPIDs() {
+        let dockSurface = [window(pid: dockPID, layer: MissionControlSurface.exposeLayer)]
+        let wmSurface = [window(pid: windowManagerPID, layer: MissionControlSurface.windowManagerExposeLayer)]
+        #expect(MissionControlSurface.exposeSurfacePresent(
+            in: dockSurface, dockPID: dockPID, windowManagerPID: nil))
+        #expect(MissionControlSurface.exposeSurfacePresent(
+            in: wmSurface, dockPID: nil, windowManagerPID: windowManagerPID))
+        #expect(!MissionControlSurface.exposeSurfacePresent(
+            in: dockSurface + wmSurface, dockPID: nil, windowManagerPID: nil))
     }
 
     @Test("layerDiagnostic summarizes non-zero layers, layer-descending, keeping the largest size per group")

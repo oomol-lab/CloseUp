@@ -393,23 +393,29 @@ final class MissionControlEngine {
         }
     }
 
-    /// Mission Control draws a Dock-owned exposé surface at window **layer 18**
-    /// for the whole time it is visible; polling for it is a *reliable* "is MC
-    /// open?" signal (verified: layer-18 Dock windows exist only while MC is up).
-    /// We drive the session on this, not on the AX expose notifications, which the
-    /// Dock fires spuriously during trackpad swipes. Matched by the Dock pid (the
-    /// owner name is localized — "程序坞" etc.) so it is locale-independent.
-    /// Whether Mission Control's layer-18 exposé surface is on screen right now,
-    /// read in ONE `CGWindowList` pass. This is the authority for opening AND
-    /// ending a session. Matched against the LIVE Dock pid, not the observer's
+    /// Mission Control draws an exposé surface for the whole time it is visible —
+    /// Dock-owned at **layer 18** on macOS ≤26, WindowManager-owned at **layer
+    /// 19** on macOS 27+ (Golden Gate moved it; see `MissionControlSurface`) —
+    /// and polling for it is a *reliable* "is MC open?" signal. We drive the
+    /// session on this, not on the AX expose notifications, which the Dock fires
+    /// spuriously during trackpad swipes on ≤26 and stopped posting entirely on
+    /// 27 (so there the poll is the ONLY open detection). Matched by pid (owner
+    /// names are localized — "程序坞" etc.) so it is locale-independent.
+    /// Whether an exposé surface is on screen right now is read in ONE
+    /// `CGWindowList` pass. This is the authority for opening AND ending a
+    /// session. Matched against the LIVE pids, not the observer's
     /// `armedDockPID`: the latter is `nil` until the AXObserver has armed and goes
     /// stale across a Dock relaunch, so coupling detection to it blinds opens
     /// during a Dock-down-at-launch race until the ~2 s health poll re-arms; the
-    /// live pid self-heals immediately.
+    /// live pids self-heal immediately.
     private func missionControlSurfacePresent() -> Bool {
-        guard let dockPID = MissionControlObserver.currentDockPID() else { return false }
+        let dockPID = MissionControlObserver.currentDockPID()
+        let windowManagerPID = MissionControlObserver.currentWindowManagerPID()
+        guard dockPID != nil || windowManagerPID != nil else { return false }
         let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-        return MissionControlSurface.exposeSurfacePresent(in: info, dockPID: dockPID)
+        return MissionControlSurface.exposeSurfacePresent(
+            in: info, dockPID: dockPID, windowManagerPID: windowManagerPID
+        )
     }
 
     /// The authority on the session lifecycle (runs for the whole engine lifetime).
@@ -584,15 +590,23 @@ final class MissionControlEngine {
 
     private func refreshWindows() {
         let overlayID = overlayWindow.map { CGWindowID($0.windowNumber) }
-        // Exclude the Dock by PID: `kCGWindowOwnerName` is LOCALIZED ("程序坞",
+        // Exclude system owners by PID: `kCGWindowOwnerName` is LOCALIZED ("程序坞",
         // …), so the name-based exclusion silently misses on every non-English
-        // system and the Dock's layer-0 surface joins the hover candidates —
+        // system and the owner's layer-0 surface joins the hover candidates —
         // hovering it resolves no AX window and the lights go dark. The name
         // set stays as an English-system belt-and-suspenders only.
+        // WindowManager joins the exclusion for macOS 27: while MC is open it
+        // draws a layer-0 hover-highlight window a few px LARGER than, and on
+        // top of, whichever thumbnail the cursor is over (verified on 26A5368g:
+        // 987x750 chrome around a 975x737 thumbnail) — without the pid
+        // exclusion `frontmost(containing:)` resolves that chrome for EVERY
+        // hovered thumbnail and the lights stay dark on all of them, the same
+        // failure class as the localized-Dock bug.
         let dockPID = MissionControlObserver.currentDockPID()
+        let windowManagerPID = MissionControlObserver.currentWindowManagerPID()
         windows = enumerator.actionableWindows(
-            excludingOwners: ["Dock"],
-            excludingPIDs: dockPID.map { [$0] } ?? []
+            excludingOwners: ["Dock", "WindowManager"],
+            excludingPIDs: Set([dockPID, windowManagerPID].compactMap(\.self))
         )
             .filter { window in
                 // Never the overlay window itself (it is a high-level window,
@@ -1163,7 +1177,20 @@ final class MissionControlEngine {
         // window until MC was reopened. `.canJoinAllSpaces` makes it follow across
         // desktops; `.ignoresCycle` keeps it out of window cycling. (OpenMissionControl
         // sets no collection behavior at all and is immune to this.)
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        // macOS 27 "Golden Gate": Mission Control is composited by WindowManager,
+        // which hides EVERY non-participating window while MC is open regardless
+        // of window level — A/B-probed on 26A5368g: both a `.screenSaver`-level
+        // and a shielding-level window vanish during MC unless they carry
+        // `.stationary` ("unaffected by Exposé"), with which they composite above
+        // the exposé surface. Without this the whole pipeline runs (session,
+        // settle, hover, `overlay show` with a lying `visible=y`) yet nothing is
+        // on screen. Gated to 27+ only because the ≤26 Dock-drawn MC composites
+        // the overlay correctly with the base set (verified through 26) and that
+        // shipped-working recipe should not change on a version we can no longer
+        // regression-test locally.
+        if #available(macOS 27.0, *) { behavior.insert(.stationary) }
+        window.collectionBehavior = behavior
         overlayWindow = window
     }
 
