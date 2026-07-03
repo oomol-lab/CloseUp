@@ -118,14 +118,21 @@ section "ANALYSIS: verdicts"
     if [ -n "$DOCK_PID" ]; then
         echo "Dock-owned layers baseline:  $(awk -F'\t' -v p="$DOCK_PID" '$2==p {print $3}' "$WORK/baseline.tsv" | sort -un | tr '\n' ' ')"
         echo "Dock-owned layers during MC: $(awk -F'\t' -v p="$DOCK_PID" '$2==p {print $3}' "$WORK/mc.tsv" | sort -un | tr '\n' ' ')"
-        if awk -F'\t' -v p="$DOCK_PID" '$2==p && $3==18 {found=1} END {exit !found}' "$WORK/mc.tsv"; then
-            echo "VERDICT: Dock layer-18 exposé surface PRESENT during MC (detection signal intact)"
-        else
-            echo "VERDICT: Dock layer-18 exposé surface ABSENT during MC  ← CloseUp's open-detection signal is broken on this OS"
-        fi
     fi
     if [ -n "$WM_PID" ]; then
         echo "WindowManager-owned layers during MC: $(awk -F'\t' -v p="$WM_PID" '$2==p {print $3}' "$WORK/mc.tsv" | sort -un | tr '\n' ' ')"
+    fi
+    # CloseUp's open-detection signal, both generations: Dock@18 (macOS ≤26) or
+    # WindowManager@19 (macOS 27+). Either one present during MC = signal intact.
+    DOCK18=0; WM19=0
+    [ -n "$DOCK_PID" ] && awk -F'\t' -v p="$DOCK_PID" '$2==p && $3==18 {found=1} END {exit !found}' "$WORK/mc.tsv" && DOCK18=1
+    [ -n "$WM_PID" ] && awk -F'\t' -v p="$WM_PID" '$2==p && $3==19 {found=1} END {exit !found}' "$WORK/mc.tsv" && WM19=1
+    if [ "$DOCK18" = "1" ]; then
+        echo "VERDICT: Dock layer-18 exposé surface PRESENT during MC (macOS ≤26 signal intact)"
+    elif [ "$WM19" = "1" ]; then
+        echo "VERDICT: WindowManager layer-19 exposé surface PRESENT during MC (macOS 27+ signal intact; needs CloseUp ≥ the PR #5 fix)"
+    else
+        echo "VERDICT: NO known exposé surface during MC (neither Dock@18 nor WindowManager@19)  ← open-detection signal moved again; see the during-MC dump above"
     fi
 } >> "$OUT"
 
