@@ -1,17 +1,16 @@
 #!/bin/bash
 # CloseUp field diagnostic — "no overlay icons in Mission Control".
-# 现场诊断脚本 —— "Mission Control 里没出现 CloseUp 图标"。
 #
 # Zero dependencies: runs on a stock macOS install (JXA + /usr/bin/log only).
 # It captures WHERE the Dock draws Mission Control's surfaces (window layers)
 # and CloseUp's own live debug log during one manual reproduction, then writes
 # a single report file to send back to the developers.
 #
-# Usage / 用法:
+# Usage:
 #   bash diagnose-mission-control.sh          # interactive (asks you to open MC)
 #   bash diagnose-mission-control.sh --auto   # non-interactive self-test (short)
 #
-# Output / 输出: ~/Desktop/closeup-diagnostic-<timestamp>.txt
+# Output: ~/Desktop/closeup-diagnostic-<timestamp>.txt
 set -u
 
 AUTO=0
@@ -46,7 +45,6 @@ EOF
 dump_windows() { osascript -l JavaScript "$WORK/dump.js" 2>>"$OUT"; }
 
 say "CloseUp Mission Control diagnostic → $OUT"
-say "CloseUp Mission Control 诊断 → $OUT"
 say ""
 
 # --- 1. System / app info ----------------------------------------------------
@@ -68,7 +66,6 @@ RUNNING="$(pgrep -x CloseUp || true)"
 echo "running pid: ${RUNNING:-NOT RUNNING}" >> "$OUT"
 if [ -z "$RUNNING" ]; then
     say "⚠️  CloseUp is not running — start it (and enable it) first, then re-run."
-    say "⚠️  CloseUp 未在运行 —— 请先启动并启用它,再重新运行本脚本。"
 fi
 DOCK_PID="$(pgrep -x Dock || true)"
 WM_PID="$(pgrep -x WindowManager || true)"
@@ -86,7 +83,7 @@ capture_mc_dump() {  # $1 = label
     sort -t$'\t' -k3,3nr -k2,2n "$WORK/mc.tsv" >> "$OUT"
 }
 
-say "Opening Mission Control automatically… / 正在自动打开 Mission Control…"
+say "Opening Mission Control automatically…"
 open -b com.apple.exposelauncher 2>>"$OUT" || echo "open exposelauncher FAILED" >> "$OUT"
 capture_mc_dump "MISSION CONTROL OPEN (auto-trigger)"
 open -b com.apple.exposelauncher 2>/dev/null || true   # toggle back closed
@@ -100,13 +97,11 @@ NEW="$(new_windows)"
 if [ -z "$NEW" ] && [ "$AUTO" = "0" ]; then
     say ""
     say "Auto-trigger produced no new windows — manual round needed."
-    say "自动触发没有捕捉到新窗口 —— 需要手动来一次。"
     say "Press Enter, then IMMEDIATELY open Mission Control yourself (F3 / Control+↑ / 3-finger swipe up) and keep it open ~3 seconds."
-    say "按回车后,请立刻手动打开 Mission Control(F3 / Control+↑ / 三指上滑)并保持约 3 秒。"
     read -r
     capture_mc_dump "MISSION CONTROL OPEN (manual trigger)"
     NEW="$(new_windows)"
-    say "You can close Mission Control now (Esc). / 现在可以按 Esc 关闭了。"
+    say "You can close Mission Control now (Esc)."
 fi
 
 section "ANALYSIS: windows that appeared while Mission Control was open"
@@ -144,12 +139,9 @@ section "LIVE LOG (debug) during manual reproduction, ${LOGWIN}s"
 LOGPID=$!
 say ""
 say "Live log capture started — you have ${LOGWIN} seconds. Please now:"
-say "实时日志采集已开始 —— 你有 ${LOGWIN} 秒,请现在:"
 say "  1. Open Mission Control with the REAL trackpad gesture (3/4-finger swipe up) or F3"
-say "     用真实触控板手势(三/四指上滑)或 F3 打开 Mission Control"
 say "  2. Move the cursor onto 2-3 window thumbnails, pausing ~2s on each"
-say "     把鼠标移到 2-3 个窗口缩略图上,每个停留约 2 秒"
-say "  3. Press Esc to close Mission Control / 按 Esc 关闭"
+say "  3. Press Esc to close Mission Control"
 sleep "$LOGWIN"
 kill "$LOGPID" 2>/dev/null; wait "$LOGPID" 2>/dev/null
 cat "$WORK/live.log" >> "$OUT"
@@ -162,5 +154,5 @@ section "PERSISTED LOG (last 30 min, notice+)"
 /usr/bin/log show --last 30m --predicate 'subsystem == "com.oomol.CloseUp"' --info --style compact >> "$OUT" 2>&1
 
 say ""
-say "Done. Please send this file back / 完成,请把这个文件发回:"
+say "Done. Please send this file back:"
 say "  $OUT"
