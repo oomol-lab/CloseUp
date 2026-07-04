@@ -143,7 +143,9 @@ say "  1. Open Mission Control with the REAL trackpad gesture (3/4-finger swipe 
 say "  2. Move the cursor onto 2-3 window thumbnails, pausing ~2s on each"
 say "  3. Press Esc to close Mission Control"
 sleep "$LOGWIN"
-kill "$LOGPID" 2>/dev/null; wait "$LOGPID" 2>/dev/null
+# SIGINT (the streamer's Ctrl-C clean-shutdown path), not SIGTERM, so `log` runs its
+# normal teardown and flushes any pending output before exiting; `wait` then reaps it.
+kill -INT "$LOGPID" 2>/dev/null; wait "$LOGPID" 2>/dev/null
 cat "$WORK/live.log" >> "$OUT"
 if ! grep -q "com.oomol.CloseUp:" "$WORK/live.log"; then
     echo "(no live CloseUp log lines captured — is CloseUp running and enabled? was Mission Control opened during the window?)" >> "$OUT"
