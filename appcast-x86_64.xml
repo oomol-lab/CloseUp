@@ -3,6 +3,19 @@
     <channel>
         <title>CloseUp</title>
         <item>
+            <title>1.0.2</title>
+            <pubDate>Sat, 04 Jul 2026 01:53:43 +0000</pubDate>
+            <sparkle:version>20260704015226</sparkle:version>
+            <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.2
+
+- fix(overlay): macOS 27 support — WindowManager-composited Mission Control + field diagnostics (#5)
+- docs(readme): add screenshots to all READMEs (#3)
+]]></description>
+            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.2/CloseUp-1.0.2-x86_64.zip" length="2245105" type="application/octet-stream" sparkle:edSignature="ZQOiAugb42Z5Lw5MXyXFWRaOVzNhrpGdLyKgC0vdoblwIW9Fl2UpmzU/kgq0w94beNj1Me7Zw9FXwKHc8dgqAw=="/>
+        </item>
+        <item>
             <title>1.0.2-beta.1</title>
             <pubDate>Fri, 03 Jul 2026 01:42:35 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
@@ -27,19 +40,6 @@
 - fix(settings): open Settings on reopen via self-managed window (#1)
 ]]></description>
             <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.1/CloseUp-1.0.1-x86_64.zip" length="2226624" type="application/octet-stream" sparkle:edSignature="uy1H8PS4QkRTiEdIu2XdUnP8yklr5hmzFu72BU30zBzqHZWxJQJ4FldlrMapW4JAFQ5+QGxt4oc8GE4aSkalBA=="/>
-        </item>
-        <item>
-            <title>1.0.1-beta.1</title>
-            <pubDate>Thu, 02 Jul 2026 09:37:59 +0000</pubDate>
-            <sparkle:channel>beta</sparkle:channel>
-            <sparkle:version>20260702093636</sparkle:version>
-            <sparkle:shortVersionString>1.0.1-beta.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.1-beta.1
-
-- fix(settings): open Settings on reopen via self-managed window (#1)
-]]></description>
-            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.1-beta.1/CloseUp-1.0.1-beta.1-x86_64.zip" length="2226647" type="application/octet-stream" sparkle:edSignature="yurrQ7QKlftyYrkqgtSBtlFnQvPF+by5C7tLnnP90QZzFh7kmXdP0pRFWGWgy+1eoXu5wyESQHpbHCYZPXyvAw=="/>
         </item>
         <item>
             <title>1.0.0</title>
