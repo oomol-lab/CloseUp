@@ -320,24 +320,31 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   feels — its controls hang off the thumbnail and stay lit on the outer half.) Verified
   on-screen: cursor parked on a button's outer half (CG y above the window top) keeps
   the lights; moving above the whole cluster logs `hover W→0` and correctly releases.
-- **Size the overlay `NSWindow` to the cluster BEFORE mounting the `NSHostingView`
-  content — never mount-then-resize, or the lights "fly in from the top-left".** The
-  overlay window is created at `contentRect: .zero`. If `repositionOverlay` sets the
-  SwiftUI content first and grows the window after, the hosting view lays the `HStack`
-  out inside a 0×0 bounds — all buttons collapsed at the top-left origin — and the
-  subsequent `setFrame` is seen by SwiftUI as an animatable layout change from that
-  collapsed state, so the buttons animate out to the row from the corner (probabilistic:
-  only when the collapsed first layout gets composited before the resize lands). Correct
-  order: `window.setFrame(geo.nsWindowFrame, display: false)` (defer redraw so no stale
-  frame paints at the new size) → `setOverlayContent(...)` (a FRESH hosting view is born
-  already at the final bounds, so its first layout is the final one — no 0→size
-  transition) → `window.orderFront(nil)`. Holds for every show path because they all
-  route through `repositionOverlay` (hover-change reuse, make-before-break reanchor,
-  re-tile recreate). NB the per-button hover lift (`scaleEffect` + `DS.Motion.overlay`)
-  is NOT the cause — `scaleEffect` is a render transform and never reflows siblings;
-  the fly-in is purely the hosting view's 0→size first layout. Verified frame-by-frame
-  at 120fps: pre-fix ~8 frames of corner-collapse→spread on appear; post-fix the cluster
-  appears atomically at its final position in one frame.
+- **A shown overlay `NSWindow` is IMMUTABLE — never `setFrame` a visible overlay;
+  every show is a FRESH window born at its final frame (`presentOverlay` →
+  `makeOverlayWindow(at:)`), and hide == retire (`retireOverlayWindow`:
+  `orderOut`+`close()`+nil).** Two bug classes force this. (1) **The system implicitly
+  animates a visible window's frame change while Mission Control is open** (#6):
+  moving the live overlay on a hover change made the lights GLIDE from the old
+  thumbnail to the new one — verified frame-by-frame on macOS 27 (26A428): a ~300 ms
+  diagonal slide across every intermediate frame; the reporter's recording also shows
+  the retired cluster fading out at its old spot. No AppKit call opts out of this
+  (`setFrame(_:display:)` is not animated by AppKit itself — the compositor does it),
+  so the only fix is to never move an on-screen window: build the new one at the target
+  `contentRect`, `orderFront` it, THEN retire the old (make-before-break — no dark gap),
+  plus `animationBehavior = .none` so AppKit adds no order-in/out fade either. Post-fix
+  the cluster switches windows in ONE frame at ~57 fps, like native MC's controls.
+  (2) **Mount-then-resize makes the lights "fly in from the top-left":** content mounted
+  into a `.zero` window is laid out collapsed at the origin and SwiftUI animates it out
+  to the row as the window grows (probabilistic). Creating the window AT its final frame
+  and mounting a fresh `NSHostingView` into it means the first layout is the final one —
+  no `setFrame` exists anywhere in the engine any more. NB the per-button hover lift
+  (`scaleEffect` + `DS.Motion.overlay`) is NOT involved in either — `scaleEffect` is a
+  render transform and never reflows siblings. Cost is nil: an `NSWindow` per hover
+  change at human rate (the re-tile rebuild and the 4 forced re-anchors per enter
+  already did this, blink-free). Corollary: `overlayWindow` is "the window on screen
+  or nil" — never pre-create one at session begin, never keep a hidden one around to
+  reuse.
 - Overlay = borderless `NSWindow` at `.screenSaver` level (1000); a global
   `CGEvent` tap swallows only clicks/keys hitting a button and passes everything
   else through, so Mission Control keeps its own Esc/arrow handling. Re-enable the
@@ -365,8 +372,8 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   one signal that catches every re-tile (Space switch, boundary swipe, full-screen
   transition) is the thumbnail frames shifting: `refreshWindows` diffs per-window-id
   frames each tick and, once the churn *settles* (held still ~2 ticks),
-  `recreateOverlayWindow()` (`orderOut`+`close()`+nil+`ensureOverlayWindow`) once
-  and re-anchors — which also fixes the lights lagging the moved thumbnail (the
+  `retireOverlayWindow()` (`orderOut`+`close()`+nil — the next show is a fresh window)
+  once and re-anchors — which also fixes the lights lagging the moved thumbnail (the
   "misaligned lights"). Rebuild on *settle*, not during churn, or it flickers
   through the animation. Corollaries that cost hours: (1) **`visible=y` in the log
   is a LIAR** — the sunk window believes it is visible; confirm on a real screen,
@@ -449,9 +456,10 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   post-settle watch (`sinkWatchTicks`, ~30 ticks ≈1.8 s, reset at every session
   boundary, set at settle) during which `trackMouse` at a few FORCED ticks
   (`{6,14,22,28}`) UNCONDITIONALLY re-anchors a FRESH overlay window via
-  make-before-break (`overlayWindow=nil; ensureOverlayWindow(); repositionOverlay();
-  old.orderOut; old.close()` — show the new one *before* closing the old → blink-free,
-  user-confirmed at 4 re-anchors/enter with no flicker). A fresh window ordered-in
+  make-before-break (`reanchorOverlayAboveSurface` → `repositionOverlay`, whose
+  `presentOverlay` builds the new window, orders it front, and only then retires the
+  old — show the new one *before* closing the old → blink-free, user-confirmed at 4
+  re-anchors/enter with no flicker). A fresh window ordered-in
   after the Dock has finished compositing lands above the surface; the spread-out
   forced ticks cover the range of finish times, so a stationary cursor self-heals
   with no movement. An A/B across builds proved the *unconditional forced* re-anchor

@@ -32,6 +32,11 @@ final class MissionControlEngine {
     private let observer = MissionControlObserver()
     private let tap = EventTap()
 
+    /// The overlay window currently ON SCREEN (nil while the lights are hidden).
+    /// A shown window is immutable — it is born at its final frame and never
+    /// moved or re-filled: every show retires it and orders in a fresh one (see
+    /// `presentOverlay`), so it can never pick up the system's implicit
+    /// window-move animation during Mission Control (#6).
     private var overlayWindow: NSWindow?
     private var windows: [WindowInfo] = []
     private var hovered: WindowInfo?
@@ -361,7 +366,6 @@ final class MissionControlEngine {
         clearReshowSuppression() // fresh MC session — lights live again
         pivotHeight = Self.menuBarScreenHeight()
         refreshWindows()
-        ensureOverlayWindow()
         Log.missionControl.notice("session begin (windows=\(self.windows.count, privacy: .public))")
 
         tap.start(handlers: EventTap.Handlers(
@@ -486,7 +490,7 @@ final class MissionControlEngine {
         pivotHeight = Self.menuBarScreenHeight()
         resetSettleState() // the new space re-tiles — hide until it settles
         hovered = nil
-        overlayWindow?.orderOut(nil)
+        retireOverlayWindow()
         refreshWindows()
         Log.missionControl.debug("resync: windows=\(self.windows.count, privacy: .public) pivot=\(Int(self.pivotHeight), privacy: .public)")
     }
@@ -668,7 +672,7 @@ final class MissionControlEngine {
             sinkWatchTicks = 0
             if layoutSettled {
                 layoutSettled = false
-                overlayWindow?.orderOut(nil)
+                retireOverlayWindow()
                 hovered = nil
                 Log.missionControl.debug("layout churning → hide overlay until settle")
             }
@@ -709,12 +713,13 @@ final class MissionControlEngine {
                 // a fresh window each tick it is hidden, plus at a few forced ticks, so
                 // the lights land once the Dock has finished entering.
                 sinkWatchTicks = Self.sinkWatchTickBudget
-                // Rebuild the overlay window so it composites ABOVE the Dock's settled
-                // exposé surface (a window ordered-in before the tiling finished stays
-                // sunk while reporting a false `visible=y`), then anchor on the hover.
-                recreateOverlayWindow()
+                // Retire the overlay window so the next show orders in a FRESH one
+                // ABOVE the Dock's settled exposé surface (a window ordered-in before
+                // the tiling finished stays sunk while reporting a false `visible=y`),
+                // then anchor on the hover.
+                retireOverlayWindow()
                 hovered = nil
-                trackMouse() // re-anchor on the fresh window now, no inter-tick gap
+                trackMouse() // re-anchor on a fresh window now, no inter-tick gap
             }
         }
     }
@@ -841,19 +846,14 @@ final class MissionControlEngine {
         if hoverState.hoveredIndex != index { hoverState.hoveredIndex = index }
     }
 
-    /// Re-anchor the overlay ABOVE the Dock's exposé surface without a visible blink:
-    /// build a FRESH window and order it in now (a window ordered-in after the surface
-    /// has settled lands on top — the same reason `recreateOverlayWindow` fixes the
-    /// re-tile sink), then order out and close the sunk old window only AFTER the new
-    /// one is showing (make-before-break), so the lights never flicker.
+    /// Re-anchor the overlay ABOVE the Dock's exposé surface without a visible blink.
+    /// Every show already orders in a FRESH window and retires the old one only AFTER
+    /// the new one is showing (`presentOverlay`, make-before-break), and a window
+    /// ordered-in after the surface has settled lands on top — so a plain re-show is
+    /// the whole re-anchor, and the lights never flicker.
     private func reanchorOverlayAboveSurface() {
         guard !suppressOverlayReshow, hovered != nil else { return }
-        let old = overlayWindow
-        overlayWindow = nil
-        ensureOverlayWindow()
-        repositionOverlay() // fills content + frame and orders the fresh window front
-        old?.orderOut(nil)
-        old?.close()
+        repositionOverlay()
     }
 
     private func repositionOverlay() {
@@ -861,10 +861,10 @@ final class MissionControlEngine {
         // through the exit animation's frame churn so it doesn't flash back on (often
         // at a garbage top-left position) before the session ends.
         guard !suppressOverlayReshow else {
-            overlayWindow?.orderOut(nil)
+            retireOverlayWindow()
             return
         }
-        guard let hovered, let window = overlayWindow else {
+        guard let hovered else {
             clearOverlayContent()
             return
         }
@@ -897,18 +897,31 @@ final class MissionControlEngine {
         currentActions = actions
         let geo = OverlayGeometry(windowFrame: hovered.frame, actionCount: actions.count, pivotHeight: pivotHeight)
         geometry = geo
-        // Size the window to the cluster BEFORE mounting the SwiftUI content, so the
-        // freshly-built `NSHostingView` is born at its FINAL bounds. The old order
-        // (mount content, then grow the window) let the hosting view first lay the
-        // buttons out inside a `.zero` content rect — all collapsed at the top-left
-        // origin — and SwiftUI then animated them out to the row as the window grew:
-        // the "lights fly in from the top-left" bug (probabilistic, since it only shows
-        // when the collapsed first layout gets composited before the resize lands).
-        // `display: false` defers the redraw so no stale frame paints at the new size;
-        // `orderFront` then shows the already-laid-out content in one shot.
-        window.setFrame(geo.nsWindowFrame, display: false)
-        setOverlayContent(actions)
+        presentOverlay(geo, actions: actions)
+    }
+
+    /// Put the cluster on screen at `geo` — always on a FRESH window born at its final
+    /// frame, never by moving the one already showing. While Mission Control is open
+    /// the system implicitly animates a visible window's frame change (verified
+    /// frame-by-frame on macOS 27 and in the #6 recording: ~300 ms glide), so
+    /// `setFrame` on the live overlay made the lights slide from the old thumbnail to
+    /// the new one on every hover change. Native Mission Control's controls hide and
+    /// re-appear instead, so the shown window is immutable: build the new one at the
+    /// target frame, order it front, and only THEN retire the old one
+    /// (make-before-break — no dark gap, no flicker; the same recipe the post-settle
+    /// re-anchor relies on to land above the exposé surface).
+    /// Creating the window at its final `contentRect` also keeps the hosting view's
+    /// FIRST layout its final one — the fix for the "lights fly in from the top-left"
+    /// bug, where content mounted into a `.zero` window and then animated out as the
+    /// window grew — with no `setFrame` at all.
+    private func presentOverlay(_ geo: OverlayGeometry, actions: [WindowAction]) {
+        let retired = overlayWindow
+        let window = makeOverlayWindow(at: geo.nsWindowFrame)
+        window.contentView = NSHostingView(rootView: OverlayClusterView(actions: actions, locale: localeProvider(), hoverState: hoverState))
         window.orderFront(nil)
+        overlayWindow = window
+        retired?.orderOut(nil)
+        retired?.close()
         let f = geo.nsWindowFrame
         Log.missionControl.debug("overlay show win=\(window.windowNumber, privacy: .public) actions=\(actions.count, privacy: .public) ns=(\(Int(f.minX), privacy: .public),\(Int(f.minY), privacy: .public) \(Int(f.width), privacy: .public)x\(Int(f.height), privacy: .public)) visible=\(window.isVisible ? "y" : "n", privacy: .public) onActiveSpace=\(window.isOnActiveSpace ? "y" : "n", privacy: .public) screen=\(window.screen != nil ? "y" : "n", privacy: .public)")
     }
@@ -998,7 +1011,7 @@ final class MissionControlEngine {
     /// Hide the overlay window and drop the resolved geometry + action mapping. The
     /// shared "clear the overlay" sequence for the no-window / no-actions paths.
     private func clearOverlayContent() {
-        overlayWindow?.orderOut(nil)
+        retireOverlayWindow()
         geometry = nil
         currentActions = []
     }
@@ -1154,22 +1167,28 @@ final class MissionControlEngine {
         if action == .zoom {
             // Zoom brings the window forward, so settle Mission Control first.
             performer.wakeMissionControl()
-            overlayWindow?.orderOut(nil)
+            retireOverlayWindow()
         }
         performer.perform(action, on: window)
     }
 
     // MARK: - Overlay window
 
-    private func ensureOverlayWindow() {
-        guard overlayWindow == nil else { return }
-        let window = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+    /// Build a NOT-yet-shown overlay window already at its final `frame` (AppKit
+    /// coordinates). Callers order it front and never move it afterwards — see
+    /// `presentOverlay` for why a shown overlay window is immutable.
+    private func makeOverlayWindow(at frame: NSRect) -> NSWindow {
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = .screenSaver // above the Dock-drawn Mission Control surface
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = false
         window.ignoresMouseEvents = true // fully passive — the event tap is the only click handler
         window.isReleasedWhenClosed = false
+        // No AppKit order-in/out animation either: the lights must appear and vanish
+        // in one frame, like native Mission Control's controls (#6 also shows the
+        // retired cluster fading out at its old position).
+        window.animationBehavior = .none
         // NB: do NOT add `.transient` — the system hides transient windows during
         // Mission Control gestures, so a 3-finger swipe (even one that doesn't
         // change Space, e.g. swiping past the last desktop) would hide the overlay
@@ -1191,23 +1210,20 @@ final class MissionControlEngine {
         // regression-test locally.
         if #available(macOS 27.0, *) { behavior.insert(.stationary) }
         window.collectionBehavior = behavior
-        overlayWindow = window
+        return window
     }
 
-    private func setOverlayContent(_ actions: [WindowAction]) {
-        overlayWindow?.contentView = NSHostingView(rootView: OverlayClusterView(actions: actions, locale: localeProvider(), hoverState: hoverState))
-    }
-
-    /// Tear the overlay window down and let `ensureOverlayWindow` build a fresh
-    /// one. Called when a Mission Control re-tile settles (`refreshWindows`): the
-    /// old window has sunk behind the Dock's rebuilt exposé surface, so only a
-    /// window ordered-in *after* the re-tile composites above it. `repositionOverlay`
-    /// re-fills the content and orders the new window front on the next hover tick.
-    private func recreateOverlayWindow() {
-        overlayWindow?.orderOut(nil)
-        overlayWindow?.close()
+    /// Take the overlay off screen and discard the window. A retired window is never
+    /// reused — the next show builds a fresh one at its own final frame
+    /// (`presentOverlay`) — so hide == retire. Also the re-tile recovery: a window
+    /// ordered-in before a Mission Control re-tile stays sunk behind the rebuilt
+    /// exposé surface (while reporting a false `visible=y`); only a window ordered-in
+    /// *after* the re-tile composites above it, and every show is exactly that.
+    private func retireOverlayWindow() {
+        guard let window = overlayWindow else { return }
         overlayWindow = nil
-        ensureOverlayWindow()
+        window.orderOut(nil)
+        window.close()
     }
 
     // MARK: - Screen geometry
