@@ -1091,23 +1091,23 @@ final class MissionControlEngine {
         // after a close re-tiles the grid, a quick second click would resolve to
         // the window that USED to be under the pointer. Re-enumerate at the event
         // and require the thumbnail under the point to be where the cache has it.
-        // Only paid when the answer can lead to a close.
-        var framesCurrent = true
+        // The live snapshot (not the cached entry) becomes the target, so the
+        // press/release pairing compares what was on screen at each event. Only
+        // paid when the answer can lead to a close; otherwise the cached entry
+        // stands in and the policy never reaches it.
+        var liveWindow = window
         if closesWindows, mcSurfacePresent, layoutSettled, buttonHit == nil {
-            framesCurrent = MiddleClickPolicy.framesCurrent(
-                cached: window,
-                live: enumerateThumbnails().frontmost(containing: point),
-                tolerance: settleTolerancePx
-            )
+            liveWindow = enumerateThumbnails().frontmost(containing: point)
         }
         return MiddleClickContext(
             surfacePresent: mcSurfacePresent,
             layoutSettled: layoutSettled,
-            framesCurrent: framesCurrent,
             dismissing: suppressOverlayReshow,
             closesWindows: closesWindows,
             buttonHit: buttonHit,
             windowAtPoint: window,
+            liveWindowAtPoint: liveWindow,
+            settleTolerance: settleTolerancePx,
             windowCanClose: window.flatMap { capabilityCache[$0.windowID]?.canClose } ?? false
         )
     }
@@ -1122,7 +1122,7 @@ final class MissionControlEngine {
         let target = MiddleClickPolicy.target(for: context)
         // One line per press, whatever the outcome: without it a click that did
         // nothing cannot be told apart from an event that never reached the tap.
-        Log.missionControl.debug("middle-click press at=(\(Int(point.x), privacy: .public),\(Int(point.y), privacy: .public)) surface=\(context.surfacePresent ? "y" : "n", privacy: .public) settled=\(context.layoutSettled ? "y" : "n", privacy: .public) current=\(context.framesCurrent ? "y" : "n", privacy: .public) dismissing=\(context.dismissing ? "y" : "n", privacy: .public) enabled=\(context.closesWindows ? "y" : "n", privacy: .public) button=\(context.buttonHit == nil ? "n" : "y", privacy: .public) window=\(context.windowAtPoint?.windowID ?? 0, privacy: .public) canClose=\(context.windowCanClose ? "y" : "n", privacy: .public) → \(target == nil ? "pass" : target == .blocked ? "blocked" : "armed", privacy: .public)")
+        Log.missionControl.debug("middle-click press at=(\(Int(point.x), privacy: .public),\(Int(point.y), privacy: .public)) surface=\(context.surfacePresent ? "y" : "n", privacy: .public) settled=\(context.layoutSettled ? "y" : "n", privacy: .public) current=\(MiddleClickPolicy.framesCurrent(cached: context.windowAtPoint, live: context.liveWindowAtPoint, tolerance: context.settleTolerance) ? "y" : "n", privacy: .public) dismissing=\(context.dismissing ? "y" : "n", privacy: .public) enabled=\(context.closesWindows ? "y" : "n", privacy: .public) button=\(context.buttonHit == nil ? "n" : "y", privacy: .public) window=\(context.windowAtPoint?.windowID ?? 0, privacy: .public) canClose=\(context.windowCanClose ? "y" : "n", privacy: .public) → \(target == nil ? "pass" : target == .blocked ? "blocked" : "armed", privacy: .public)")
         return !middleClick.press(target)
     }
 

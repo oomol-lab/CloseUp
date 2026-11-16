@@ -515,7 +515,12 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   screen — a close does not re-tile on macOS 27). So the engine re-runs
   `enumerateThumbnails()` inside the tap callback (one CGWindowList pass, only when
   the answer can lead to a close) and blocks unless the window under the point has
-  the same id and frame as the cache. Every frame comparison on this path (this
+  the same id and frame as the cache. The validated LIVE snapshot — not the cached
+  entry — then becomes the target, so the press/release pairing measures how far
+  the thumbnail really moved between the two events; pairing on the cached entry
+  compared the cache with itself and let through a drift within tolerance of the
+  cache at each event but beyond it across them (PR #11 review, degraded settle
+  only). Every frame comparison on this path (this
   one and the press/release pairing) uses the engine's current settle tolerance,
   so degraded settle's 1–2 px drift between refreshes does not silently drop
   clicks. Do NOT "fix" the staleness by un-settling the layout at close time

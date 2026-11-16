@@ -41,11 +41,6 @@ public struct MiddleClickContext: Equatable, Sendable {
     public var surfacePresent: Bool
     /// The thumbnail frames are holding still (the engine's settle gate).
     public var layoutSettled: Bool
-    /// The thumbnail under the point in a window list enumerated AT THIS EVENT is
-    /// the one the settled (cached) layout has there — see
-    /// `MiddleClickPolicy.framesCurrent`. The settle gate alone lags the screen by
-    /// up to one refresh tick.
-    public var framesCurrent: Bool
     /// A pass-through left click is dismissing Mission Control; its exit animation
     /// is about to move every thumbnail.
     public var dismissing: Bool
@@ -53,9 +48,19 @@ public struct MiddleClickContext: Equatable, Sendable {
     public var closesWindows: Bool
     /// The traffic-light button under the point, if the cluster is showing there.
     public var buttonHit: MiddleClickTarget?
-    /// The frontmost thumbnail under the point.
+    /// The frontmost thumbnail under the point in the engine's CACHED window list
+    /// (refreshed by a ~100 ms poll).
     public var windowAtPoint: WindowInfo?
-    /// Whether `windowAtPoint` is KNOWN to have a close button (the session's
+    /// The frontmost thumbnail under the point in a list enumerated AT THIS EVENT.
+    /// It must agree with the cached one (`MiddleClickPolicy.framesCurrent`) — the
+    /// settle gate alone lags the screen by up to a refresh tick — and it, not the
+    /// cached entry, becomes the target, so the press/release pairing compares
+    /// what was actually on screen at each event.
+    public var liveWindowAtPoint: WindowInfo?
+    /// The engine's settle tolerance in whole pixels (0, or the degraded-settle
+    /// value), applied to the cached-vs-live comparison.
+    public var settleTolerance: Int
+    /// Whether the window under the point is KNOWN to have a close button (the session's
     /// capability cache). Unknown counts as no: a popover, a full-screen tile or a
     /// not-yet-resolved window is never closed blind.
     public var windowCanClose: Bool
@@ -63,20 +68,22 @@ public struct MiddleClickContext: Equatable, Sendable {
     public init(
         surfacePresent: Bool,
         layoutSettled: Bool,
-        framesCurrent: Bool,
         dismissing: Bool,
         closesWindows: Bool,
         buttonHit: MiddleClickTarget?,
         windowAtPoint: WindowInfo?,
+        liveWindowAtPoint: WindowInfo?,
+        settleTolerance: Int,
         windowCanClose: Bool
     ) {
         self.surfacePresent = surfacePresent
         self.layoutSettled = layoutSettled
-        self.framesCurrent = framesCurrent
         self.dismissing = dismissing
         self.closesWindows = closesWindows
         self.buttonHit = buttonHit
         self.windowAtPoint = windowAtPoint
+        self.liveWindowAtPoint = liveWindowAtPoint
+        self.settleTolerance = settleTolerance
         self.windowCanClose = windowCanClose
     }
 }
@@ -110,8 +117,15 @@ public enum MiddleClickPolicy {
         guard context.surfacePresent else { return nil }
         if let buttonHit = context.buttonHit { return buttonHit }
         guard context.closesWindows else { return nil }
-        guard context.layoutSettled, context.framesCurrent, !context.dismissing else { return .blocked }
-        guard let window = context.windowAtPoint else { return nil }
+        guard context.layoutSettled, !context.dismissing else { return .blocked }
+        guard framesCurrent(
+            cached: context.windowAtPoint, live: context.liveWindowAtPoint, tolerance: context.settleTolerance
+        ) else { return .blocked }
+        // Target the EVENT-TIME snapshot: the pairing then measures how far the
+        // thumbnail really moved between press and release. Pairing on the cached
+        // entry would compare the cache with itself and miss a drift that stays
+        // within tolerance of the cache at each event but exceeds it across them.
+        guard let window = context.liveWindowAtPoint else { return nil }
         return context.windowCanClose ? .window(window) : .blocked
     }
 }

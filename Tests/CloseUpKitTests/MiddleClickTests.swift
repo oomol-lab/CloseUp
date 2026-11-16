@@ -5,31 +5,39 @@ import Testing
 
 @Suite("MiddleClickPolicy")
 struct MiddleClickPolicyTests {
-    private let window = WindowInfo(
-        windowID: 7, ownerPID: 100, ownerName: "Finder",
-        frame: CGRect(x: 100, y: 200, width: 400, height: 300)
-    )
+    private static let window = thumbnail(x: 100)
+    private var window: WindowInfo { Self.window }
+
+    /// Window 7 with its thumbnail at `x` — the same window at different frames.
+    private static func thumbnail(x: CGFloat) -> WindowInfo {
+        WindowInfo(
+            windowID: 7, ownerPID: 100, ownerName: "Finder",
+            frame: CGRect(x: x, y: 200, width: 400, height: 300)
+        )
+    }
 
     /// A context in which a middle-click on `window`'s thumbnail closes it; each
     /// test flips exactly one input away from this baseline.
     private func context(
         surfacePresent: Bool = true,
         layoutSettled: Bool = true,
-        framesCurrent: Bool = true,
         dismissing: Bool = false,
         closesWindows: Bool = true,
         buttonHit: MiddleClickTarget? = nil,
-        windowAtPoint: WindowInfo? = nil,
+        windowAtPoint: WindowInfo? = MiddleClickPolicyTests.window,
+        liveWindowAtPoint: WindowInfo? = MiddleClickPolicyTests.window,
+        settleTolerance: Int = 0,
         windowCanClose: Bool = true
     ) -> MiddleClickContext {
         MiddleClickContext(
             surfacePresent: surfacePresent,
             layoutSettled: layoutSettled,
-            framesCurrent: framesCurrent,
             dismissing: dismissing,
             closesWindows: closesWindows,
             buttonHit: buttonHit,
-            windowAtPoint: windowAtPoint ?? window,
+            windowAtPoint: windowAtPoint,
+            liveWindowAtPoint: liveWindowAtPoint,
+            settleTolerance: settleTolerance,
             windowCanClose: windowCanClose
         )
     }
@@ -86,7 +94,34 @@ struct MiddleClickPolicyTests {
         // The refresh poll is up to one tick behind the screen: right after a close
         // re-tiles the grid, `layoutSettled` is still true and the cached frames
         // are the OLD ones. A live enumeration at the click disagrees → blocked.
-        #expect(MiddleClickPolicy.target(for: context(framesCurrent: false)) == .blocked)
+        #expect(MiddleClickPolicy.target(for: context(liveWindowAtPoint: Self.thumbnail(x: 130))) == .blocked)
+        // The cached thumbnail is gone from under the point altogether.
+        #expect(MiddleClickPolicy.target(for: context(liveWindowAtPoint: nil)) == .blocked)
+        // Another thumbnail slid under a point the cache has as empty space.
+        #expect(MiddleClickPolicy.target(for: context(windowAtPoint: nil)) == .blocked)
+    }
+
+    @Test("the target carries the EVENT-TIME frame, not the cached one")
+    func targetIsLiveSnapshot() {
+        let live = Self.thumbnail(x: 102)
+        let target = MiddleClickPolicy.target(for: context(liveWindowAtPoint: live, settleTolerance: 2))
+        #expect(target == .window(live))
+    }
+
+    @Test("drift beyond the tolerance BETWEEN press and release cancels, even with an unchanged cache")
+    func driftAcrossEventsCancels() {
+        // Degraded settle, tolerance 2, cache frozen at x=100 for both events. The
+        // press sees the thumbnail at 98 and the release at 102: each is within 2 px
+        // of the cache, but the thumbnail moved 4 px between the two events.
+        let press = MiddleClickPolicy.target(for: context(liveWindowAtPoint: Self.thumbnail(x: 98), settleTolerance: 2))
+        let release = MiddleClickPolicy.target(for: context(liveWindowAtPoint: Self.thumbnail(x: 102), settleTolerance: 2))
+        #expect(press == .window(Self.thumbnail(x: 98)))
+        #expect(release == .window(Self.thumbnail(x: 102)))
+        var pairing = MiddleClickPairing()
+        let pressed = pairing.press(press)
+        #expect(pressed)
+        let released = pairing.release(release, tolerance: 2)
+        #expect(released == .init(swallow: true, fire: nil))
     }
 
     @Test("an unsettled layout blocks even where no thumbnail is known — the frames are stale")
@@ -117,8 +152,9 @@ struct MiddleClickPolicyTests {
 
     private func emptySpace(layoutSettled: Bool) -> MiddleClickContext {
         MiddleClickContext(
-            surfacePresent: true, layoutSettled: layoutSettled, framesCurrent: true, dismissing: false,
-            closesWindows: true, buttonHit: nil, windowAtPoint: nil, windowCanClose: false
+            surfacePresent: true, layoutSettled: layoutSettled, dismissing: false,
+            closesWindows: true, buttonHit: nil, windowAtPoint: nil, liveWindowAtPoint: nil,
+            settleTolerance: 0, windowCanClose: false
         )
     }
 }
