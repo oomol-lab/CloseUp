@@ -604,7 +604,10 @@ final class MissionControlEngine {
         armObserver()
     }
 
-    private func refreshWindows() {
+    /// The actionable Mission Control thumbnails on screen RIGHT NOW, front to
+    /// back — one `CGWindowList` pass. `refreshWindows` caches this every tick; a
+    /// middle-click re-runs it at the event to check the cache is not stale.
+    private func enumerateThumbnails() -> [WindowInfo] {
         let overlayID = overlayWindow.map { CGWindowID($0.windowNumber) }
         // Exclude system owners by PID: `kCGWindowOwnerName` is LOCALIZED ("程序坞",
         // …), so the name-based exclusion silently misses on every non-English
@@ -620,7 +623,7 @@ final class MissionControlEngine {
         // failure class as the localized-Dock bug.
         let dockPID = MissionControlObserver.currentDockPID()
         let windowManagerPID = MissionControlObserver.currentWindowManagerPID()
-        windows = enumerator.actionableWindows(
+        return enumerator.actionableWindows(
             excludingOwners: ["Dock", "WindowManager"],
             excludingPIDs: Set([dockPID, windowManagerPID].compactMap(\.self))
         )
@@ -643,6 +646,10 @@ final class MissionControlEngine {
             // window can't shadow the real one under the cursor and anchor the
             // overlay off-screen (the "no lights after swiping" bug).
             .anchoredOnScreen(displays: Self.activeDisplayBoundsCG(), inset: OverlayGeometry.edgeInset)
+    }
+
+    private func refreshWindows() {
+        windows = enumerateThumbnails()
 
         // Prewarm + heal: resolve capabilities for any not-yet-cached window off
         // the main actor. At session begin this front-loads the per-app AX
@@ -668,7 +675,7 @@ final class MissionControlEngine {
         let hadBaseline = !windowFrames.isEmpty
         let churning = ThumbnailLayout.didRetile(
             from: windowFrames, to: newFrames,
-            tolerance: degradedSettle ? Self.degradedSettleTolerancePx : 0
+            tolerance: settleTolerancePx
         )
         let oldFrames = windowFrames // kept one tick for the starvation tripwire's churn sample
         windowFrames = newFrames
@@ -1061,20 +1068,44 @@ final class MissionControlEngine {
     /// The live inputs for routing a middle-button event at `point`; the rule
     /// itself is `MiddleClickPolicy` (CloseUpKit, tested). The thumbnail is resolved from the
     /// EVENT's point — not the 60 ms-polled `hovered`, which also lags behind the
-    /// display gates — and its close capability is read from the session cache
+    /// display gates — then checked against a LIVE enumeration, because that cache
+    /// lags the screen by up to a refresh tick; its close capability is read from the session cache
     /// only: no AX IPC inside the tap callback, and a window the overlay keeps
     /// dark (popover, full-screen tile, not yet resolved) is never closed blind.
+    /// The per-edge pixel movement the settle gate currently treats as "still":
+    /// 0 normally, the degraded-settle value once that fallback is active. Every
+    /// frame comparison a middle-click makes uses it, so they agree with the gate.
+    private var settleTolerancePx: Int {
+        degradedSettle ? Self.degradedSettleTolerancePx : 0
+    }
+
     private func middleClickContext(at point: CGPoint) -> MiddleClickContext {
         var buttonHit: MiddleClickTarget?
         if let geometry, let hovered, let index = geometry.hitTest(point), index < currentActions.count {
             buttonHit = .button(index: index, windowID: hovered.windowID)
         }
         let window = windows.frontmost(containing: point)
+        let closesWindows = middleClickClosesProvider()
+        // `windows` is up to one refresh tick (~100 ms) behind the screen, and
+        // `layoutSettled` only flips once a refresh SEES the frames move — so right
+        // after a close re-tiles the grid, a quick second click would resolve to
+        // the window that USED to be under the pointer. Re-enumerate at the event
+        // and require the thumbnail under the point to be where the cache has it.
+        // Only paid when the answer can lead to a close.
+        var framesCurrent = true
+        if closesWindows, mcSurfacePresent, layoutSettled, buttonHit == nil {
+            framesCurrent = MiddleClickPolicy.framesCurrent(
+                cached: window,
+                live: enumerateThumbnails().frontmost(containing: point),
+                tolerance: settleTolerancePx
+            )
+        }
         return MiddleClickContext(
             surfacePresent: mcSurfacePresent,
             layoutSettled: layoutSettled,
+            framesCurrent: framesCurrent,
             dismissing: suppressOverlayReshow,
-            closesWindows: middleClickClosesProvider(),
+            closesWindows: closesWindows,
             buttonHit: buttonHit,
             windowAtPoint: window,
             windowCanClose: window.flatMap { capabilityCache[$0.windowID]?.canClose } ?? false
@@ -1091,7 +1122,7 @@ final class MissionControlEngine {
         let target = MiddleClickPolicy.target(for: context)
         // One line per press, whatever the outcome: without it a click that did
         // nothing cannot be told apart from an event that never reached the tap.
-        Log.missionControl.debug("middle-click press at=(\(Int(point.x), privacy: .public),\(Int(point.y), privacy: .public)) surface=\(context.surfacePresent ? "y" : "n", privacy: .public) settled=\(context.layoutSettled ? "y" : "n", privacy: .public) dismissing=\(context.dismissing ? "y" : "n", privacy: .public) enabled=\(context.closesWindows ? "y" : "n", privacy: .public) button=\(context.buttonHit == nil ? "n" : "y", privacy: .public) window=\(context.windowAtPoint?.windowID ?? 0, privacy: .public) canClose=\(context.windowCanClose ? "y" : "n", privacy: .public) → \(target == nil ? "pass" : target == .blocked ? "blocked" : "armed", privacy: .public)")
+        Log.missionControl.debug("middle-click press at=(\(Int(point.x), privacy: .public),\(Int(point.y), privacy: .public)) surface=\(context.surfacePresent ? "y" : "n", privacy: .public) settled=\(context.layoutSettled ? "y" : "n", privacy: .public) current=\(context.framesCurrent ? "y" : "n", privacy: .public) dismissing=\(context.dismissing ? "y" : "n", privacy: .public) enabled=\(context.closesWindows ? "y" : "n", privacy: .public) button=\(context.buttonHit == nil ? "n" : "y", privacy: .public) window=\(context.windowAtPoint?.windowID ?? 0, privacy: .public) canClose=\(context.windowCanClose ? "y" : "n", privacy: .public) → \(target == nil ? "pass" : target == .blocked ? "blocked" : "armed", privacy: .public)")
         return !middleClick.press(target)
     }
 
@@ -1102,7 +1133,10 @@ final class MissionControlEngine {
     /// dismiss side effects.
     private func handleOtherMouseUp(at point: CGPoint, button: Int64) -> Bool {
         guard MiddleClickPolicy.isMiddleButton(button) else { return true }
-        let release = middleClick.release(MiddleClickPolicy.target(for: middleClickContext(at: point)))
+        let release = middleClick.release(
+            MiddleClickPolicy.target(for: middleClickContext(at: point)),
+            tolerance: settleTolerancePx
+        )
         if let target = release.fire { performMiddleClick(target) }
         return !release.swallow
     }

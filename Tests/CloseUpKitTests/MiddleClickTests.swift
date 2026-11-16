@@ -15,6 +15,7 @@ struct MiddleClickPolicyTests {
     private func context(
         surfacePresent: Bool = true,
         layoutSettled: Bool = true,
+        framesCurrent: Bool = true,
         dismissing: Bool = false,
         closesWindows: Bool = true,
         buttonHit: MiddleClickTarget? = nil,
@@ -24,6 +25,7 @@ struct MiddleClickPolicyTests {
         MiddleClickContext(
             surfacePresent: surfacePresent,
             layoutSettled: layoutSettled,
+            framesCurrent: framesCurrent,
             dismissing: dismissing,
             closesWindows: closesWindows,
             buttonHit: buttonHit,
@@ -79,6 +81,14 @@ struct MiddleClickPolicyTests {
         #expect(MiddleClickPolicy.target(for: context(layoutSettled: false)) == .blocked)
     }
 
+    @Test("a thumbnail that is no longer where the settled layout has it is not closed")
+    func staleFrames() {
+        // The refresh poll is up to one tick behind the screen: right after a close
+        // re-tiles the grid, `layoutSettled` is still true and the cached frames
+        // are the OLD ones. A live enumeration at the click disagrees → blocked.
+        #expect(MiddleClickPolicy.target(for: context(framesCurrent: false)) == .blocked)
+    }
+
     @Test("an unsettled layout blocks even where no thumbnail is known — the frames are stale")
     func unsettledEmptySpace() {
         #expect(MiddleClickPolicy.target(for: emptySpace(layoutSettled: false)) == .blocked)
@@ -107,9 +117,48 @@ struct MiddleClickPolicyTests {
 
     private func emptySpace(layoutSettled: Bool) -> MiddleClickContext {
         MiddleClickContext(
-            surfacePresent: true, layoutSettled: layoutSettled, dismissing: false,
+            surfacePresent: true, layoutSettled: layoutSettled, framesCurrent: true, dismissing: false,
             closesWindows: true, buttonHit: nil, windowAtPoint: nil, windowCanClose: false
         )
+    }
+}
+
+@Suite("MiddleClickPolicy.framesCurrent")
+struct MiddleClickFramesCurrentTests {
+    private func window(_ id: CGWindowID, x: CGFloat) -> WindowInfo {
+        WindowInfo(windowID: id, ownerPID: 100, ownerName: "App", frame: CGRect(x: x, y: 200, width: 400, height: 300))
+    }
+
+    @Test("the same window at the same frame is current")
+    func same() {
+        #expect(MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: window(1, x: 100), tolerance: 0))
+    }
+
+    @Test("empty space in both the cached and the live layout is current")
+    func bothEmpty() {
+        #expect(MiddleClickPolicy.framesCurrent(cached: nil, live: nil, tolerance: 0))
+    }
+
+    @Test("a different window under the point is stale — another thumbnail slid in")
+    func differentWindow() {
+        #expect(!MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: window(2, x: 100), tolerance: 0))
+    }
+
+    @Test("the same window at a moved frame is stale — it is mid re-tile")
+    func movedFrame() {
+        #expect(!MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: window(1, x: 130), tolerance: 0))
+    }
+
+    @Test("a thumbnail appearing or vanishing under the point is stale")
+    func membership() {
+        #expect(!MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: nil, tolerance: 0))
+        #expect(!MiddleClickPolicy.framesCurrent(cached: nil, live: window(1, x: 100), tolerance: 0))
+    }
+
+    @Test("degraded settle's tolerance absorbs micro-jitter but not a real move")
+    func tolerance() {
+        #expect(MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: window(1, x: 102), tolerance: 2))
+        #expect(!MiddleClickPolicy.framesCurrent(cached: window(1, x: 100), live: window(1, x: 103), tolerance: 2))
     }
 }
 
@@ -171,6 +220,36 @@ struct MiddleClickPairingTests {
         #expect(pressed)
         let released = pairing.release(moved)
         #expect(released == .init(swallow: true, fire: nil))
+    }
+
+    @Test("under a settle tolerance, micro-jitter between press and release still fires")
+    func toleratedJitterFires() {
+        var pairing = MiddleClickPairing()
+        let jittered = MiddleClickTarget.window(WindowInfo(
+            windowID: 1, ownerPID: 10, ownerName: "A",
+            frame: CGRect(x: 2, y: 1, width: 100, height: 100)
+        ))
+        let pressed = pairing.press(a)
+        #expect(pressed)
+        // Degraded settle: the cached frame drifted 2 px between the two events.
+        // The close acts on the window as last seen (the release target).
+        let released = pairing.release(jittered, tolerance: 2)
+        #expect(released == .init(swallow: true, fire: jittered))
+    }
+
+    @Test("a settle tolerance never bridges two different windows or a real move")
+    func toleranceStaysNarrow() {
+        var pairing = MiddleClickPairing()
+        let moved = MiddleClickTarget.window(WindowInfo(
+            windowID: 1, ownerPID: 10, ownerName: "A",
+            frame: CGRect(x: 3, y: 0, width: 100, height: 100)
+        ))
+        _ = pairing.press(a)
+        let releasedMoved = pairing.release(moved, tolerance: 2)
+        #expect(releasedMoved == .init(swallow: true, fire: nil))
+        _ = pairing.press(a)
+        let releasedOther = pairing.release(b, tolerance: 2)
+        #expect(releasedOther == .init(swallow: true, fire: nil))
     }
 
     @Test("a blocked press is swallowed whole and never turns into a close on release")

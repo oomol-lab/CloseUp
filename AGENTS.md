@@ -504,7 +504,25 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   60 ms-polled `hovered`) is closed — only when the setting is on
   (`OverlaySettings.middleClickCloses`, default on, independent of `showClose` like
   ⌘W), `mcSurfacePresent`, `layoutSettled`, no pass-through dismiss in flight
-  (`suppressOverlayReshow`), and the window has a CACHED `canClose`. Cache-only on
+  (`suppressOverlayReshow`), the thumbnail still where a LIVE enumeration at the
+  event finds it (`MiddleClickPolicy.framesCurrent`), and the window has a CACHED
+  `canClose`. **`layoutSettled` alone is NOT a sufficient freshness gate for a
+  destructive click:** `windows` is refreshed by the ~100 ms poll and the flag only
+  flips once a refresh SEES the frames move, so for up to a tick after a re-tile
+  begins (most reliably right after a close on ≤26) the layout reads settled while
+  the cached frames are the old ones — a quick second click would close whatever
+  USED to be under the pointer (PR #11 review; unit-tested, NOT reproduced on
+  screen — a close does not re-tile on macOS 27). So the engine re-runs
+  `enumerateThumbnails()` inside the tap callback (one CGWindowList pass, only when
+  the answer can lead to a close) and blocks unless the window under the point has
+  the same id and frame as the cache. Every frame comparison on this path (this
+  one and the press/release pairing) uses the engine's current settle tolerance,
+  so degraded settle's 1–2 px drift between refreshes does not silently drop
+  clicks. Do NOT "fix" the staleness by un-settling the layout at close time
+  instead: that only narrows the window (a slow app re-tiles after the layout has
+  re-settled), and by reading the settle path the re-settle is expected to
+  re-anchor the lights onto the window that is still closing. Capability stays
+  cache-only on
   purpose: zero AX IPC inside the tap callback, and the set of windows a
   middle-click can close is exactly the set that would light up — a popover, a
   full-screen tile, or a not-yet-resolved window is never closed blind.
@@ -524,7 +542,8 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   click from closing the wrong one; on 27 a close leaves a gap and nothing slides
   in). `MiddleClickPairing` swallows the press when it lands on a target and then
   ALWAYS swallows its release, firing on the release only if it resolves to the
-  SAME target (window id AND frame) and that target is not `.blocked` — Mission
+  SAME target (window id AND frame, within the settle tolerance) and that target
+  is not `.blocked` — Mission
   Control never sees half a click, and dragging off cancels. After a close the
   engine adopts the clicked window as `hovered` before `hideOverlay()`, mirroring a
   traffic-light close, so the next tick cannot read the cursor as a fresh hover

@@ -15,6 +15,22 @@ public enum MiddleClickTarget: Equatable, Sendable {
     /// declined click through would turn "not safe to close right now" into
     /// "switch to that window".
     case blocked
+
+    /// Whether a release on `other` completes a click pressed on `self`: the same
+    /// button, or the same window with its frame within `tolerance` whole pixels
+    /// (the engine's settle tolerance — 0 except in degraded settle, where the
+    /// cached frames legitimately drift a pixel or two between two refreshes).
+    /// `.blocked` completes nothing.
+    public func isCompleted(by other: MiddleClickTarget?, tolerance: Int) -> Bool {
+        switch (self, other) {
+        case let (.button(index, windowID), .button(otherIndex, otherWindowID)):
+            index == otherIndex && windowID == otherWindowID
+        case let (.window(pressed), .window(released)):
+            MiddleClickPolicy.framesCurrent(cached: pressed, live: released, tolerance: tolerance)
+        default:
+            false
+        }
+    }
 }
 
 /// Everything the engine knows about one middle-button event, as plain values so
@@ -25,6 +41,11 @@ public struct MiddleClickContext: Equatable, Sendable {
     public var surfacePresent: Bool
     /// The thumbnail frames are holding still (the engine's settle gate).
     public var layoutSettled: Bool
+    /// The thumbnail under the point in a window list enumerated AT THIS EVENT is
+    /// the one the settled (cached) layout has there — see
+    /// `MiddleClickPolicy.framesCurrent`. The settle gate alone lags the screen by
+    /// up to one refresh tick.
+    public var framesCurrent: Bool
     /// A pass-through left click is dismissing Mission Control; its exit animation
     /// is about to move every thumbnail.
     public var dismissing: Bool
@@ -42,6 +63,7 @@ public struct MiddleClickContext: Equatable, Sendable {
     public init(
         surfacePresent: Bool,
         layoutSettled: Bool,
+        framesCurrent: Bool,
         dismissing: Bool,
         closesWindows: Bool,
         buttonHit: MiddleClickTarget?,
@@ -50,6 +72,7 @@ public struct MiddleClickContext: Equatable, Sendable {
     ) {
         self.surfacePresent = surfacePresent
         self.layoutSettled = layoutSettled
+        self.framesCurrent = framesCurrent
         self.dismissing = dismissing
         self.closesWindows = closesWindows
         self.buttonHit = buttonHit
@@ -75,8 +98,9 @@ public enum MiddleClickPolicy {
     /// screen, so the layout is settled by construction). With the setting off
     /// everything else is `nil`: middle-click stays fully native. With it on, the
     /// middle button belongs to CloseUp. Closing is destructive, so it is gated
-    /// hard — the frames must be at rest, Mission Control must not be on its way
-    /// out, and the window must be known to have a close button — and a click
+    /// hard — the frames must be at rest AND still where a live enumeration at the
+    /// click finds them, Mission Control must not be on its way out, and the
+    /// window must be known to have a close button — and a click
     /// that fails a gate is `.blocked`: consumed with no effect, because Mission
     /// Control would otherwise select the window under it. A dropped click costs
     /// the user a second click; a wrong target costs a window. While the frames
@@ -86,9 +110,37 @@ public enum MiddleClickPolicy {
         guard context.surfacePresent else { return nil }
         if let buttonHit = context.buttonHit { return buttonHit }
         guard context.closesWindows else { return nil }
-        guard context.layoutSettled, !context.dismissing else { return .blocked }
+        guard context.layoutSettled, context.framesCurrent, !context.dismissing else { return .blocked }
         guard let window = context.windowAtPoint else { return nil }
         return context.windowCanClose ? .window(window) : .blocked
+    }
+}
+
+public extension MiddleClickPolicy {
+    /// Whether the thumbnail a LIVE enumeration finds under the click point is the
+    /// one the cached, settled layout has there (same window id, same frame).
+    ///
+    /// The engine's window list is refreshed by a ~100 ms poll, and `layoutSettled`
+    /// flips only when that poll sees the frames move. So for up to one tick after
+    /// a re-tile begins — most reliably right after a close, which re-tiles the
+    /// remaining thumbnails on macOS ≤26 — the layout still reads as settled while
+    /// the cached frames are the OLD ones, and a quick second click would resolve
+    /// to whatever window USED to be under the pointer. Comparing against a list
+    /// enumerated at the event closes that gap for every cause of staleness, not
+    /// just a close. `tolerance` is the engine's settle tolerance in whole pixels
+    /// (0 normally, the degraded-settle value when the OS keeps thumbnails in
+    /// perpetual micro-motion), so the two gates agree on what "still" means.
+    static func framesCurrent(cached: WindowInfo?, live: WindowInfo?, tolerance: Int) -> Bool {
+        switch (cached, live) {
+        case (nil, nil):
+            true
+        case let (cached?, live?):
+            cached.windowID == live.windowID && !ThumbnailLayout.didRetile(
+                from: [cached.windowID: cached.frame], to: [live.windowID: live.frame], tolerance: tolerance
+            )
+        default:
+            false
+        }
     }
 }
 
@@ -122,11 +174,13 @@ public struct MiddleClickPairing: Equatable, Sendable {
         return target != nil
     }
 
-    /// Resolve a release against the armed press, disarming either way.
-    public mutating func release(_ target: MiddleClickTarget?) -> Release {
+    /// Resolve a release against the armed press, disarming either way. Fires the
+    /// RELEASE target (the window as last seen) when it completes the press — see
+    /// `MiddleClickTarget.isCompleted(by:tolerance:)`.
+    public mutating func release(_ target: MiddleClickTarget?, tolerance: Int = 0) -> Release {
         defer { armed = nil }
         guard let armed else { return Release(swallow: false, fire: nil) }
-        return Release(swallow: true, fire: armed == target && armed != .blocked ? armed : nil)
+        return Release(swallow: true, fire: armed.isCompleted(by: target, tolerance: tolerance) ? target : nil)
     }
 
     public mutating func reset() {
