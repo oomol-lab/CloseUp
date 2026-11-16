@@ -16,6 +16,9 @@ final class MissionControlEngine {
     /// Resolves the key chord for an in-MC shortcut (defaults, or a
     /// KeyboardShortcuts-backed provider once that lands).
     private let chordProvider: (MissionControlShortcut) -> KeyChord?
+    /// Whether middle-clicking a thumbnail closes its window — read live at every
+    /// click, so the Settings toggle applies mid-session.
+    private let middleClickClosesProvider: () -> Bool
     /// The locale the overlay renders in (the in-app language override).
     private let localeProvider: () -> Locale
     /// CloseUp's own process id, so its windows can be treated specially (its
@@ -256,6 +259,10 @@ final class MissionControlEngine {
     private var suppressOverlayReshow = false
     private var suppressReshowTask: Task<Void, Never>?
 
+    /// The middle-button press awaiting its release (see `MiddleClickPairing`).
+    /// Reset at every session boundary so a press can never fire across sessions.
+    private var middleClick = MiddleClickPairing()
+
     private var isRunning = false
 
     init(
@@ -264,6 +271,7 @@ final class MissionControlEngine {
         capabilityResolver: any WindowCapabilityResolving = AccessibilityCapabilityResolver(),
         actionsProvider: @escaping () -> [WindowAction],
         chordProvider: @escaping (MissionControlShortcut) -> KeyChord? = { $0.defaultChord },
+        middleClickClosesProvider: @escaping () -> Bool = { true },
         localeProvider: @escaping () -> Locale = { .current }
     ) {
         self.enumerator = enumerator
@@ -271,6 +279,7 @@ final class MissionControlEngine {
         self.capabilityResolver = capabilityResolver
         self.actionsProvider = actionsProvider
         self.chordProvider = chordProvider
+        self.middleClickClosesProvider = middleClickClosesProvider
         self.localeProvider = localeProvider
     }
 
@@ -364,13 +373,15 @@ final class MissionControlEngine {
         // normal enter" bug). Keeping the paused-mid-swipe dark is the exact
         // frame-stability settle gate's job (`layoutSettled`), not the cursor guard.
         clearReshowSuppression() // fresh MC session — lights live again
+        middleClick.reset()
         pivotHeight = Self.menuBarScreenHeight()
         refreshWindows()
         Log.missionControl.notice("session begin (windows=\(self.windows.count, privacy: .public))")
 
         tap.start(handlers: EventTap.Handlers(
             onClick: { [weak self] point in self?.handleClick(at: point) ?? true },
-            onSecondaryClick: { [weak self] point in self?.handleSecondaryClick(at: point) ?? true },
+            onOtherMouseDown: { [weak self] point, button in self?.handleOtherMouseDown(at: point, button: button) ?? true },
+            onOtherMouseUp: { [weak self] point, button in self?.handleOtherMouseUp(at: point, button: button) ?? true },
             onKey: { [weak self] code, flags in self?.handleKey(code, flags) ?? true }
         ))
 
@@ -510,6 +521,7 @@ final class MissionControlEngine {
         resetSettleState()
         lastMouseLocation = nil
         clearReshowSuppression() // MC closed; nothing left to re-show
+        middleClick.reset()
         mouseTask?.cancel(); mouseTask = nil
         fetchTask?.cancel(); fetchTask = nil
         // NB: do NOT cancel `lifecycleTask` here — it runs for the engine's whole
@@ -1046,13 +1058,72 @@ final class MissionControlEngine {
         return true // pass through — Mission Control handles the click
     }
 
-    /// A middle / other-button click, routed through the SAME button hit-test as a
-    /// left click (so a middle-click on a control acts on it): it acts only as a
-    /// button hit. A miss passes through WITHOUT the left-click's dismiss side
-    /// effects — a middle-click on empty space must not tear Mission Control's
-    /// overlay down.
-    private func handleSecondaryClick(at point: CGPoint) -> Bool {
-        performButtonHit(at: point) ? false : true
+    /// The live inputs for routing a middle-button event at `point`; the rule
+    /// itself is `MiddleClickPolicy` (CloseUpKit, tested). The thumbnail is resolved from the
+    /// EVENT's point — not the 60 ms-polled `hovered`, which also lags behind the
+    /// display gates — and its close capability is read from the session cache
+    /// only: no AX IPC inside the tap callback, and a window the overlay keeps
+    /// dark (popover, full-screen tile, not yet resolved) is never closed blind.
+    private func middleClickContext(at point: CGPoint) -> MiddleClickContext {
+        var buttonHit: MiddleClickTarget?
+        if let geometry, let hovered, let index = geometry.hitTest(point), index < currentActions.count {
+            buttonHit = .button(index: index, windowID: hovered.windowID)
+        }
+        let window = windows.frontmost(containing: point)
+        return MiddleClickContext(
+            surfacePresent: mcSurfacePresent,
+            layoutSettled: layoutSettled,
+            dismissing: suppressOverlayReshow,
+            closesWindows: middleClickClosesProvider(),
+            buttonHit: buttonHit,
+            windowAtPoint: window,
+            windowCanClose: window.flatMap { capabilityCache[$0.windowID]?.canClose } ?? false
+        )
+    }
+
+    /// A middle-button press. Swallowed when it lands on something CloseUp will
+    /// act on — or must keep from Mission Control (`.blocked`); the action itself
+    /// waits for the release. Side buttons (3+) share the `otherMouse*` event
+    /// types and always pass through.
+    private func handleOtherMouseDown(at point: CGPoint, button: Int64) -> Bool {
+        guard MiddleClickPolicy.isMiddleButton(button) else { return true }
+        let context = middleClickContext(at: point)
+        let target = MiddleClickPolicy.target(for: context)
+        // One line per press, whatever the outcome: without it a click that did
+        // nothing cannot be told apart from an event that never reached the tap.
+        Log.missionControl.debug("middle-click press at=(\(Int(point.x), privacy: .public),\(Int(point.y), privacy: .public)) surface=\(context.surfacePresent ? "y" : "n", privacy: .public) settled=\(context.layoutSettled ? "y" : "n", privacy: .public) dismissing=\(context.dismissing ? "y" : "n", privacy: .public) enabled=\(context.closesWindows ? "y" : "n", privacy: .public) button=\(context.buttonHit == nil ? "n" : "y", privacy: .public) window=\(context.windowAtPoint?.windowID ?? 0, privacy: .public) canClose=\(context.windowCanClose ? "y" : "n", privacy: .public) → \(target == nil ? "pass" : target == .blocked ? "blocked" : "armed", privacy: .public)")
+        return !middleClick.press(target)
+    }
+
+    /// The middle-button release: act if it completes a click on the pressed
+    /// target — a traffic-light button performs its action, a thumbnail body
+    /// closes its window. Mission Control stays open either way (the ⌘W rule), and
+    /// a click left to Mission Control passes through WITHOUT the left click's
+    /// dismiss side effects.
+    private func handleOtherMouseUp(at point: CGPoint, button: Int64) -> Bool {
+        guard MiddleClickPolicy.isMiddleButton(button) else { return true }
+        let release = middleClick.release(MiddleClickPolicy.target(for: middleClickContext(at: point)))
+        if let target = release.fire { performMiddleClick(target) }
+        return !release.swallow
+    }
+
+    private func performMiddleClick(_ target: MiddleClickTarget) {
+        switch target {
+        case .button(let index, let windowID):
+            guard let hovered, hovered.windowID == windowID, index < currentActions.count else { return }
+            Log.missionControl.debug("middle-click button \(index, privacy: .public) on window \(windowID, privacy: .public)")
+            perform(currentActions[index], on: hovered)
+        case .window(let window):
+            Log.missionControl.debug("middle-click close window \(window.windowID, privacy: .public)")
+            // Adopt the clicked window as the hover so the click-hide below parks
+            // on IT: with a stale `hovered` the next tick would read the move onto
+            // this window as a fresh hover and light up a window that is closing.
+            hovered = window
+            perform(.close, on: window)
+        case .blocked:
+            return // consumed with no effect; the pairing never fires it
+        }
+        hideOverlay()
     }
 
     /// Fallback clear for `suppressOverlayReshow`. A real MC close clears it sooner

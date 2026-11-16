@@ -419,8 +419,8 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   alone is NOT enough.** The mechanism: drive the overlay off a poll whose show path
   early-outs when the cursor has not moved since the last tick (a plain `CGPoint`
   inequality on `lastMouseLocation`) — only (re)resolve/show the cluster when the cursor
-  actually moved. The `CGEvent` tap is kept minimal — `{LeftMouseUp, KeyDown,
-  OtherMouseUp}`, i.e. clicks + hotkeys ONLY, **no mouseMoved/scroll/gesture API** —
+  actually moved. The `CGEvent` tap is kept minimal — `{LeftMouseDown,
+  OtherMouseDown, OtherMouseUp, KeyDown}`, i.e. clicks + hotkeys ONLY, **no mouseMoved/scroll/gesture API** —
   so the engine has NO way to read the trackpad gesture phase, by design; the
   cursor-movement check is what keeps the lights from appearing early. The
   consequence: a Mission Control swipe **never moves the cursor**, so while MC is
@@ -493,6 +493,55 @@ behaviour (live `CGWindowList` / AX inspection) and the official headers.
   would hijack every close). Customizable via `KeyboardShortcuts.Recorder` +
   `KeyboardShortcuts.disable()` (suppress global firing) + `getShortcut(for:)`
   matched in the tap. True global hotkeys are reserved for safe actions.
+- **A middle-click on a thumbnail CLOSES that window (#10) — consumed as a whole
+  Down+Up pair, button 2 only, and gated harder than any other action.** The
+  `otherMouse*` event types carry EVERY button from 2 up, so the tap forwards
+  `mouseEventButtonNumber` and `MiddleClickPolicy.isMiddleButton` drops the
+  back/forward side buttons (3/4) — before #10 any other-button release on a
+  traffic light pressed it. Routing is `MiddleClickPolicy.target(for:)` (CloseUpKit,
+  tested): a traffic-light hit wins (same action a left click performs); otherwise
+  the thumbnail under the EVENT's point (`windows.frontmost(containing:)`, not the
+  60 ms-polled `hovered`) is closed — only when the setting is on
+  (`OverlaySettings.middleClickCloses`, default on, independent of `showClose` like
+  ⌘W), `mcSurfacePresent`, `layoutSettled`, no pass-through dismiss in flight
+  (`suppressOverlayReshow`), and the window has a CACHED `canClose`. Cache-only on
+  purpose: zero AX IPC inside the tap callback, and the set of windows a
+  middle-click can close is exactly the set that would light up — a popover, a
+  full-screen tile, or a not-yet-resolved window is never closed blind.
+  **A declined click is CONSUMED (`.blocked`), never passed through — native
+  Mission Control SELECTS the thumbnail on a middle/side-button click.** Verified
+  on macOS 27 (26A428) with CloseUp not running: a full other-button Down+Up on a
+  thumbnail (button 2 AND 3) exits MC and switches to that window, on the RELEASE;
+  a Down alone, a lone Up, and a full click on empty space do nothing. So with the
+  setting on, a click that fails a gate would turn "not safe to close right now"
+  into "switch to that window and leave MC" — the worst outcome for back-to-back
+  closing — and is swallowed whole instead; while the layout is unsettled the
+  cached window list cannot say what is under the point, so the whole screen is
+  blocked. With the setting OFF nothing is blocked and middle-click is fully native
+  (selects). At rest, empty space is left to MC. A dropped click costs a second
+  click, a wrong target costs a window (on macOS ≤26 a close re-tiles the remaining
+  thumbnails under a parked cursor, so the settle gate is what stops a fast second
+  click from closing the wrong one; on 27 a close leaves a gap and nothing slides
+  in). `MiddleClickPairing` swallows the press when it lands on a target and then
+  ALWAYS swallows its release, firing on the release only if it resolves to the
+  SAME target (window id AND frame) and that target is not `.blocked` — Mission
+  Control never sees half a click, and dragging off cancels. After a close the
+  engine adopts the clicked window as `hovered` before `hideOverlay()`, mirroring a
+  traffic-light close, so the next tick cannot read the cursor as a fresh hover
+  onto a window that is closing. MC stays open (the ⌘W rule). Side buttons (3+)
+  always pass through — native select, not ours to redefine.
+  No app-specific handling exists or is needed for trackpad emulators: MiddleClick
+  posts (tap mode) or rewrites (click mode) its events at `.cghidEventTap`,
+  upstream of our session tap, so they arrive as ordinary button-2 events. Verified
+  on 27 with events posted at `.cghidEventTap` exactly as its tap mode does
+  (thumbnail close, red-light close, press-A-release-B cancel, enter-animation
+  block, setting off = native, side button untouched — 11/11 on screen); the real
+  app's trackpad gestures and its click-mode rewrite are NOT yet confirmed.
+  Synthetic clicks DO reproduce this path (unlike the gesture-driven sink/no-paint
+  bugs). Diagnose a click that did nothing from the one `.debug` line every
+  button-2 press logs (`middle-click press … → pass|blocked|armed`, live
+  `log stream` only): no line = the event never reached the tap; otherwise the
+  line names the gate.
 - **Any left click while MC is open dismisses the overlay instantly — then
   suppress re-show through the exit with a SELF-CLEARING flag, never a session-long
   latch.** `handleClick` `orderOut`s the overlay on every click (a button hit

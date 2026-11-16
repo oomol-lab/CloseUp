@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// A session-level `CGEvent` tap over left-clicks and key-downs, used while
+/// A session-level `CGEvent` tap over clicks and key-downs, used while
 /// Mission Control is open to act on the overlay buttons and shortcuts. Handlers
 /// return `true` to pass the event through to Mission Control, `false` to swallow
 /// it (a button/shortcut was consumed) — so the overlay is otherwise passive and
@@ -13,21 +13,25 @@ public final class EventTap {
     public struct Handlers {
         /// Left-mouse-down at a CG-space point. Return `true` to pass through.
         public var onClick: (CGPoint) -> Bool
-        /// Middle / other-button-up at a CG-space point. Return `true` to pass
-        /// through. Routed identically to a left click's button hit-test (so a
-        /// middle-click on a control acts on it) but without left-click dismiss
-        /// semantics.
-        public var onSecondaryClick: (CGPoint) -> Bool
+        /// Other-button (2 = middle, 3+ = side buttons) press at a CG-space
+        /// point, with its `mouseEventButtonNumber`. Return `true` to pass through.
+        public var onOtherMouseDown: (CGPoint, Int64) -> Bool
+        /// The matching other-button release. Return `true` to pass through. A
+        /// handler that swallowed the press must swallow its release too, so
+        /// Mission Control never receives half a click.
+        public var onOtherMouseUp: (CGPoint, Int64) -> Bool
         /// Key-down. Return `true` to pass through.
         public var onKey: (CGKeyCode, CGEventFlags) -> Bool
 
         public init(
             onClick: @escaping (CGPoint) -> Bool,
-            onSecondaryClick: @escaping (CGPoint) -> Bool = { _ in true },
+            onOtherMouseDown: @escaping (CGPoint, Int64) -> Bool = { _, _ in true },
+            onOtherMouseUp: @escaping (CGPoint, Int64) -> Bool = { _, _ in true },
             onKey: @escaping (CGKeyCode, CGEventFlags) -> Bool
         ) {
             self.onClick = onClick
-            self.onSecondaryClick = onSecondaryClick
+            self.onOtherMouseDown = onOtherMouseDown
+            self.onOtherMouseUp = onOtherMouseUp
             self.onKey = onKey
         }
     }
@@ -46,6 +50,7 @@ public final class EventTap {
         self.handlers = handlers
 
         let mask = (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
             | (1 << CGEventType.otherMouseUp.rawValue)
             | (1 << CGEventType.keyDown.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
@@ -96,9 +101,14 @@ public final class EventTap {
         case .leftMouseDown:
             let location = event.location
             return MainActor.assumeIsolated { handlers?.onClick(location) ?? true }
+        case .otherMouseDown:
+            let location = event.location
+            let button = event.getIntegerValueField(.mouseEventButtonNumber)
+            return MainActor.assumeIsolated { handlers?.onOtherMouseDown(location, button) ?? true }
         case .otherMouseUp:
             let location = event.location
-            return MainActor.assumeIsolated { handlers?.onSecondaryClick(location) ?? true }
+            let button = event.getIntegerValueField(.mouseEventButtonNumber)
+            return MainActor.assumeIsolated { handlers?.onOtherMouseUp(location, button) ?? true }
         case .keyDown:
             let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
             let flags = event.flags

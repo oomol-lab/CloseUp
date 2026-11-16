@@ -1,8 +1,8 @@
 import Foundation
 
-/// Which overlay controls are shown, persisted as a single JSON blob. Defaults
-/// = close + minimize + maximize all on; hide/quit are keyboard-only and never
-/// appear as overlay buttons.
+/// Which overlay controls are shown, plus how the pointer acts on a thumbnail,
+/// persisted as a single JSON blob. Defaults = close + minimize + maximize all
+/// on; hide/quit are keyboard-only and never appear as overlay buttons.
 ///
 /// Forward/backward-compatible: every field decodes present-or-default, so a blob
 /// written by an older build (missing a later toggle) still loads, and a blob
@@ -12,15 +12,20 @@ public struct OverlaySettings: Codable, Equatable, Sendable {
     public var showClose: Bool
     public var showMinimize: Bool
     public var showZoom: Bool
+    /// Middle-clicking a thumbnail closes its window. Independent of `showClose`
+    /// (an input path of its own, like the ⌘W shortcut) and not an overlay button.
+    public var middleClickCloses: Bool
 
     public init(
         showClose: Bool = true,
         showMinimize: Bool = true,
-        showZoom: Bool = true
+        showZoom: Bool = true,
+        middleClickCloses: Bool = true
     ) {
         self.showClose = showClose
         self.showMinimize = showMinimize
         self.showZoom = showZoom
+        self.middleClickCloses = middleClickCloses
     }
 
     public init(from decoder: any Decoder) throws {
@@ -29,6 +34,7 @@ public struct OverlaySettings: Codable, Equatable, Sendable {
         showClose = try c.decodeIfPresent(Bool.self, forKey: .showClose) ?? d.showClose
         showMinimize = try c.decodeIfPresent(Bool.self, forKey: .showMinimize) ?? d.showMinimize
         showZoom = try c.decodeIfPresent(Bool.self, forKey: .showZoom) ?? d.showZoom
+        middleClickCloses = try c.decodeIfPresent(Bool.self, forKey: .middleClickCloses) ?? d.middleClickCloses
     }
 
     /// Whether a given action's button is enabled. Hide/quit are keyboard-only

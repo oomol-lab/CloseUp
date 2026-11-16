@@ -32,6 +32,9 @@ control total con el teclado. Gratis, nativo y de código abierto.
 - **Cerrar desde la vista general** — pasa el puntero sobre la miniatura de una
   ventana en Mission Control y haz clic en la × roja para cerrarla al instante,
   sin tener que cambiar a ella primero.
+- **Clic central para cerrar** — haz clic con el botón central en la miniatura
+  de una ventana para cerrarla; Mission Control sigue abierto. Se puede
+  desactivar en Ajustes.
 - **Todas las acciones de ventana** — minimizar, maximizar, ocultar la app o
   salir de la app. Cerrar, minimizar y maximizar son botones opcionales que
   puedes activar o desactivar en Ajustes; ocultar y salir se muestran siempre

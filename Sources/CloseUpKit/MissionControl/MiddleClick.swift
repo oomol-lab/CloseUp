@@ -1,0 +1,135 @@
+import CoreGraphics
+
+/// What a middle-click in Mission Control acts on.
+public enum MiddleClickTarget: Equatable, Sendable {
+    /// A traffic-light button of the hovered window — pressed exactly as a left
+    /// click would press it.
+    case button(index: Int, windowID: CGWindowID)
+    /// A thumbnail body — the window is closed. Carries the whole `WindowInfo`
+    /// (frame included), so a thumbnail that moved between press and release no
+    /// longer equals the pressed target and is left alone.
+    case window(WindowInfo)
+    /// A click CloseUp declines to act on but must still consume. Mission Control
+    /// treats a middle-click it receives on a thumbnail as SELECTING that window
+    /// (verified on macOS 27: it exits and switches on the release), so passing a
+    /// declined click through would turn "not safe to close right now" into
+    /// "switch to that window".
+    case blocked
+}
+
+/// Everything the engine knows about one middle-button event, as plain values so
+/// the routing rule below is unit-tested instead of living in event-tap glue.
+public struct MiddleClickContext: Equatable, Sendable {
+    /// Mission Control's exposé surface is on screen right now — false in the
+    /// close-miss debounce tail, where the tap lingers but the thumbnails are stale.
+    public var surfacePresent: Bool
+    /// The thumbnail frames are holding still (the engine's settle gate).
+    public var layoutSettled: Bool
+    /// A pass-through left click is dismissing Mission Control; its exit animation
+    /// is about to move every thumbnail.
+    public var dismissing: Bool
+    /// The user's "middle-click a window to close it" setting.
+    public var closesWindows: Bool
+    /// The traffic-light button under the point, if the cluster is showing there.
+    public var buttonHit: MiddleClickTarget?
+    /// The frontmost thumbnail under the point.
+    public var windowAtPoint: WindowInfo?
+    /// Whether `windowAtPoint` is KNOWN to have a close button (the session's
+    /// capability cache). Unknown counts as no: a popover, a full-screen tile or a
+    /// not-yet-resolved window is never closed blind.
+    public var windowCanClose: Bool
+
+    public init(
+        surfacePresent: Bool,
+        layoutSettled: Bool,
+        dismissing: Bool,
+        closesWindows: Bool,
+        buttonHit: MiddleClickTarget?,
+        windowAtPoint: WindowInfo?,
+        windowCanClose: Bool
+    ) {
+        self.surfacePresent = surfacePresent
+        self.layoutSettled = layoutSettled
+        self.dismissing = dismissing
+        self.closesWindows = closesWindows
+        self.buttonHit = buttonHit
+        self.windowAtPoint = windowAtPoint
+        self.windowCanClose = windowCanClose
+    }
+}
+
+/// Pure routing rule for a middle-click while Mission Control is open.
+public enum MiddleClickPolicy {
+    /// `kCGMouseButtonCenter`. The `otherMouse*` event types cover EVERY button
+    /// from 2 up, so the back/forward side buttons (3, 4) arrive on the same
+    /// types and must be told apart by number.
+    public static let middleButtonNumber: Int64 = 2
+
+    public static func isMiddleButton(_ buttonNumber: Int64) -> Bool {
+        buttonNumber == middleButtonNumber
+    }
+
+    /// The target of a middle-button event, or `nil` to leave it to Mission Control.
+    ///
+    /// A traffic-light hit wins and needs only a live surface (the cluster is on
+    /// screen, so the layout is settled by construction). With the setting off
+    /// everything else is `nil`: middle-click stays fully native. With it on, the
+    /// middle button belongs to CloseUp. Closing is destructive, so it is gated
+    /// hard — the frames must be at rest, Mission Control must not be on its way
+    /// out, and the window must be known to have a close button — and a click
+    /// that fails a gate is `.blocked`: consumed with no effect, because Mission
+    /// Control would otherwise select the window under it. A dropped click costs
+    /// the user a second click; a wrong target costs a window. While the frames
+    /// are moving the cached window list cannot say what is under the point, so
+    /// the whole screen is blocked; at rest, empty space is left to Mission Control.
+    public static func target(for context: MiddleClickContext) -> MiddleClickTarget? {
+        guard context.surfacePresent else { return nil }
+        if let buttonHit = context.buttonHit { return buttonHit }
+        guard context.closesWindows else { return nil }
+        guard context.layoutSettled, !context.dismissing else { return .blocked }
+        guard let window = context.windowAtPoint else { return nil }
+        return context.windowCanClose ? .window(window) : .blocked
+    }
+}
+
+/// Pairs a middle-button press with its release so the click is consumed WHOLE:
+/// a press that lands on a target is swallowed, and so is its release — Mission
+/// Control never sees half of a click CloseUp acted on. The action fires on the
+/// release, and only if the release resolves to the same target as the press, so
+/// dragging off before letting go cancels (as with any button). A `.blocked`
+/// press is swallowed whole and never fires.
+public struct MiddleClickPairing: Equatable, Sendable {
+    public struct Release: Equatable, Sendable {
+        /// Swallow the release event (its press was swallowed).
+        public let swallow: Bool
+        /// The target to act on, if the click completed on it.
+        public let fire: MiddleClickTarget?
+
+        public init(swallow: Bool, fire: MiddleClickTarget?) {
+            self.swallow = swallow
+            self.fire = fire
+        }
+    }
+
+    private var armed: MiddleClickTarget?
+
+    public init() {}
+
+    /// Record a press. Returns whether to swallow it. A press on nothing also
+    /// disarms a stale press whose release never reached the tap.
+    public mutating func press(_ target: MiddleClickTarget?) -> Bool {
+        armed = target
+        return target != nil
+    }
+
+    /// Resolve a release against the armed press, disarming either way.
+    public mutating func release(_ target: MiddleClickTarget?) -> Release {
+        defer { armed = nil }
+        guard let armed else { return Release(swallow: false, fire: nil) }
+        return Release(swallow: true, fire: armed == target && armed != .blocked ? armed : nil)
+    }
+
+    public mutating func reset() {
+        armed = nil
+    }
+}

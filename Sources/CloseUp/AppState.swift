@@ -231,6 +231,7 @@ final class AppState {
             let engine = engine ?? MissionControlEngine(
                 actionsProvider: { [weak self] in self?.overlaySettings.enabledActions ?? [] },
                 chordProvider: { [weak self] shortcut in self?.shortcuts.chord(for: shortcut) },
+                middleClickClosesProvider: { [weak self] in self?.overlaySettings.middleClickCloses ?? false },
                 localeProvider: { [weak self] in self?.locale ?? .current }
             )
             self.engine = engine

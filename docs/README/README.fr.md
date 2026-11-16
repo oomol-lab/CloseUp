@@ -27,6 +27,7 @@
 ## Fonctionnalités
 
 - **Fermeture depuis l’aperçu** — survolez la miniature d’une fenêtre dans Mission Control et cliquez sur le × rouge pour la fermer instantanément, sans avoir à y basculer au préalable.
+- **Clic central pour fermer** — cliquez avec le bouton central sur la miniature d’une fenêtre pour la fermer ; Mission Control reste ouvert. Désactivable dans les réglages.
 - **Tous les verbes de fenêtre** — réduisez, agrandissez, masquez l’app ou quittez l’app. Fermer, réduire et agrandir sont des boutons optionnels que vous pouvez activer ou désactiver dans les réglages ; masquer et quitter sont toujours affichés lorsque la fenêtre le permet.
 - **Contrôle au clavier** — agissez sur la fenêtre située sous le pointeur avec des verbes natifs : ⌘W fermer, ⌘M réduire, ⌘F agrandir, ⌘H masquer, ⌘Q quitter — tous remappables.
 - **Actions par lot** — ⌥⌘W tout fermer, ⌥⌘M tout réduire, ⌥⌘H tout masquer sauf la fenêtre sous le pointeur.
