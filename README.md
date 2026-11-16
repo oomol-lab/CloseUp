@@ -43,6 +43,8 @@ Free, native, and open source.
 
 - **Close from the overview** — hover a window thumbnail in Mission Control and
   click the red × to close it instantly, without switching to it first.
+- **Middle-click to close** — middle-click a window thumbnail to close it;
+  Mission Control stays open. Can be turned off in Settings.
 - **Every window verb** — minimize, maximize, hide the app, or quit the app.
   Close, minimize, and maximize are optional buttons you can turn on or off in
   Settings; hide and quit are always shown when the window supports them.

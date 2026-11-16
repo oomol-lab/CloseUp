@@ -33,6 +33,9 @@ Tastatursteuerung. Kostenlos, nativ und quelloffen.
 - **Schließen aus der Übersicht** — bewegen Sie den Zeiger über ein
   Fenster-Miniaturbild in Mission Control und klicken Sie auf das rote ×, um es
   sofort zu schließen, ohne vorher dorthin zu wechseln.
+- **Mittelklick zum Schließen** — klicken Sie mit der mittleren Maustaste auf
+  ein Fenster-Miniaturbild, um das Fenster zu schließen; Mission Control bleibt
+  geöffnet. In den Einstellungen abschaltbar.
 - **Jeder Fensterbefehl** — im Dock ablegen, maximieren, App ausblenden oder App
   beenden. Schließen, Im-Dock-Ablegen und Maximieren sind optionale
   Schaltflächen, die Sie in den Einstellungen ein- oder ausschalten können;

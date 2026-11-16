@@ -3,7 +3,7 @@ import CloseUpKit
 import SwiftUI
 
 /// General settings: the master enable toggle, launch-at-login, which overlay
-/// controls appear, and the in-app language override.
+/// controls appear, middle-click-to-close, and the in-app language override.
 struct GeneralSettingsPane: View {
     @Environment(AppState.self) private var appState
 
@@ -49,6 +49,14 @@ struct GeneralSettingsPane: View {
             } footer: {
                 Text(appState.loc("Choose which controls appear on each window in Mission Control."))
                     .settingsFooter()
+            }
+
+            Section {
+                Toggle(isOn: $appState.overlaySettings.middleClickCloses) {
+                    Text(appState.loc("Middle-click to close"))
+                    Text(appState.loc("Middle-click a window in Mission Control to close it."))
+                        .settingsFooter()
+                }
             }
 
             Section {

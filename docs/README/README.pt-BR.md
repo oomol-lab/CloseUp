@@ -31,6 +31,8 @@ Gratuito, nativo e de código aberto.
 
 - **Feche pela visão geral** — passe o ponteiro sobre a miniatura de uma janela no Mission Control e
   clique no × vermelho para fechá-la instantaneamente, sem precisar alternar para ela antes.
+- **Clique do meio para fechar** — clique com o botão do meio na miniatura de uma janela para
+  fechá-la; o Mission Control continua aberto. Pode ser desativado nos Ajustes.
 - **Todas as ações de janela** — minimize, maximize, oculte o app ou encerre o app. Fechar,
   minimizar e maximizar são botões opcionais que você pode ativar ou desativar nos Ajustes;
   ocultar e encerrar aparecem sempre que a janela permitir.

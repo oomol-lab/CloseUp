@@ -12,6 +12,16 @@ struct OverlaySettingsTests {
         #expect(s.enabledActions == [.close, .minimize, .zoom])
     }
 
+    @Test("middle-click-to-close is on by default and survives a round-trip when off")
+    func middleClickCloses() throws {
+        #expect(OverlaySettings().middleClickCloses)
+        let off = OverlaySettings(middleClickCloses: false)
+        let decoded = try JSONDecoder().decode(OverlaySettings.self, from: JSONEncoder().encode(off))
+        #expect(!decoded.middleClickCloses)
+        // The toggle is an input behaviour, not an overlay button.
+        #expect(off.enabledActions == [.close, .minimize, .zoom])
+    }
+
     @Test("enabledActions preserves the fixed left-to-right order")
     func order() {
         let s = OverlaySettings(showClose: true, showMinimize: false, showZoom: true)
@@ -29,6 +39,7 @@ struct OverlaySettingsTests {
         #expect(!s.showClose)        // present key keeps its written value
         #expect(s.showMinimize)      // omitted → default true
         #expect(s.showZoom)          // omitted → default true
+        #expect(s.middleClickCloses) // omitted (pre-middle-click build) → default true
     }
 
     @Test("round-trips through Codable")
