@@ -3,6 +3,19 @@
     <channel>
         <title>CloseUp</title>
         <item>
+            <title>1.0.4</title>
+            <pubDate>Thu, 19 Nov 2026 08:04:03 +0000</pubDate>
+            <sparkle:version>20261119080217</sparkle:version>
+            <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.4
+
+- feat(overlay): close a window by middle-clicking its thumbnail (#11)
+]]></description>
+            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.4/CloseUp-1.0.4-arm64.zip" length="2157787" type="application/octet-stream" sparkle:edSignature="sN7YOcBzrJci4kiCq+Xg328MFibGCLZ0ZZM0FVuVePrHubFCdx9F5M7giARgIdD5kjuKEIYjAkD1zMvQDvzDCQ=="/>
+        </item>
+        <item>
             <title>1.0.4-beta.1</title>
             <pubDate>Mon, 16 Nov 2026 13:10:19 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
@@ -30,20 +43,6 @@
             <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.3/CloseUp-1.0.3-arm64.zip" length="2135071" type="application/octet-stream" sparkle:edSignature="Dz94SdiXR6zuI3qIxbKeW75ZwZtapM6W0VRdaAyBx2DNGFxg7uNumZdqpQ7GIFNGaBQGAbm/KSq6RG411n+SDw=="/>
         </item>
         <item>
-            <title>1.0.3-beta.1</title>
-            <pubDate>Fri, 18 Sep 2026 04:50:27 +0000</pubDate>
-            <sparkle:channel>beta</sparkle:channel>
-            <sparkle:version>20260918044900</sparkle:version>
-            <sparkle:shortVersionString>1.0.3-beta.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.3-beta.1
-
-- fix(overlay): no slide animation when hover moves between windows (#8)
-]]></description>
-            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.3-beta.1/CloseUp-1.0.3-beta.1-arm64.zip" length="2135090" type="application/octet-stream" sparkle:edSignature="Z3L5qMSJD3yuz6YHBJk32Djcw/PD2M+TGynb9Q8EgiRmaLh/9LDHYcWWD+q4zdOFFFtVsBOEKsBRsvdU6Xs4Cg=="/>
-        </item>
-        <item>
             <title>1.0.2</title>
             <pubDate>Sat, 04 Jul 2026 01:53:43 +0000</pubDate>
             <sparkle:version>20260704015226</sparkle:version>
@@ -56,20 +55,6 @@
 - docs(readme): add screenshots to all READMEs (#3)
 ]]></description>
             <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.2/CloseUp-1.0.2-arm64.zip" length="2153355" type="application/octet-stream" sparkle:edSignature="u/4rQ5E747RtkPL+d275djXjqPh8ixU6idHRrK2nGwF/HOTSE4mAvJCcyqz/dW3Vp2k5y0WSnqJv5be+71obDw=="/>
-        </item>
-        <item>
-            <title>1.0.1</title>
-            <pubDate>Thu, 02 Jul 2026 11:21:25 +0000</pubDate>
-            <sparkle:version>20260702112003</sparkle:version>
-            <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[## CloseUp 1.0.1
-
-- docs(readme): fix outdated facts, add competitor comparison table (#2)
-- fix(settings): open Settings on reopen via self-managed window (#1)
-]]></description>
-            <enclosure url="https://github.com/oomol-lab/CloseUp/releases/download/v1.0.1/CloseUp-1.0.1-arm64.zip" length="2137675" type="application/octet-stream" sparkle:edSignature="/XfrjgnbFRiYB8M3DM+bCjmBQAfAnB8+o58U5d83IS6rwkucoM238P/kU3EOQ6FKfRyfiNM3XGI9niYBZSJhAQ=="/>
         </item>
     </channel>
 </rss>
